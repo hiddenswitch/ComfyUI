@@ -1,6 +1,6 @@
-torch
-torchaudio
-torchvision
+torch==2.1.0
+torchaudio==2.1.0
+torchvision==0.16.0
 torchdiffeq>=0.2.3
 torchsde>=0.2.6
 einops>=0.6.0
