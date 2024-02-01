@@ -199,6 +199,7 @@ On macOS, install exactly Python 3.11 using `brew`, which you can download from 
     You can use `comfyui` as an API. Visit the [OpenAPI specification](comfy/api/openapi.yaml). This file can be used to generate typed clients for your preferred language.
 
 ### Authoring Custom Nodes
+This section is about making new custom nodes. If you want to make existing custom nodes installable while maintaining compatibility, see [Making Legacy Custom Nodes Installable](#making-legacy-custom-nodes-installable).
 
 Create a `requirements.txt`:
 ```
@@ -266,6 +267,65 @@ These packages will be scanned recursively.
 Since you will be using `pip` to install custom nodes this way, you will get dependency resolution automatically, so you never have to `pip install -r requirements.txt` or similar garbage. this will deprecate / obsolete ComfyUI-Manager's functionality, you can use any pip package manager UI (mostly resolves https://github.com/comfyanonymous/ComfyUI/issues/1773). this also fixes issues like https://github.com/comfyanonymous/ComfyUI/issues/1678 https://github.com/comfyanonymous/ComfyUI/issues/1665 https://github.com/comfyanonymous/ComfyUI/issues/1596 https://github.com/comfyanonymous/ComfyUI/issues/1385 https://github.com/comfyanonymous/ComfyUI/issues/1373.
 
 You would also be able to add the `comfyui` git hash and custom nodes packages by git+commit or name in the metadata for maximum reproducibility.
+
+### Making Legacy Custom Nodes Installable
+Add a `pyproject.toml` file with the following content to the repository root, and then change all the values marked with `CHANGE`:
+
+```toml
+[project]
+# CHANGE: The project name
+name = "ComfyUI_Ib_CustomNodes"
+version = "0.1.0"
+# description = '...'
+readme = "README.md"
+# requires-python = ">=3.8"
+# license = "MIT"
+keywords = ["comfyui"]
+dynamic = ["dependencies"]
+
+[project.urls]
+# CHANGE: Homepage, mostly the GitHub repository
+Homepage = "https://github.com/Chaoses-Ib/ComfyUI_Ib_CustomNodes"
+
+[build-system]
+requires = ["hatchling", "hatch-requirements-txt"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata.hooks.requirements_txt]
+# CHANGE: Remove this section if there is no requirements.txt
+files = ["requirements.txt"]
+
+[tool.hatch.build.targets.sdist]
+packages = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+exclude = [
+  "*.md",
+  "/images",
+  "/docs",
+  "/examples",
+  "/workflow_examples",
+  "/tests",
+]
+
+[tool.hatch.build.targets.sdist.sources]
+# CHANGE: Package name. Must be an valid Python id (no dashes)
+"." = "ComfyUI_Ib_CustomNodes"
+
+[tool.hatch.build.targets.wheel.sources]
+# CHANGE: Same as above
+"." = "ComfyUI_Ib_CustomNodes"
+
+[project.entry-points."comfyui.custom_nodes"]
+# CHANGE: Same as above
+ComfyUI_Ib_CustomNodes = "ComfyUI_Ib_CustomNodes"
+```
+
+With this change, the custom nodes can be installed through `pip` and still keep compatibility with the legacy installation approach (cloning into the `custom_nodes` directory). For example:
+```sh
+pip install git+https://github.com/Chaoses-Ib/ComfyUI_Ib_CustomNodes.git
+```
 
 ### Troubleshooting
 
