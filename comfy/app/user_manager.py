@@ -10,10 +10,12 @@ from .app_settings import AppSettings
 
 
 class UserManager():
-    def __init__(self):
+    def __init__(self, server):
+        self.server = server
         self.default_user = "default"
         self.users_file = os.path.join(user_directory, "users.json")
         self.settings = AppSettings(self)
+        self.frontend = self.settings.get_user_settings(self.default_user).get("Comfy.Frontend", "classic")
         if not os.path.exists(user_directory):
             os.mkdir(user_directory)
             if not args.multi_user:
@@ -39,14 +41,12 @@ class UserManager():
 
         return user
 
-    def get_request_user_filepath(self, request, file, type="userdata", create_dir=True):
-
+    def get_user_filepath(self, user, file, type="userdata", create_dir=True):
         if type == "userdata":
             root_dir = user_directory
         else:
             raise KeyError("Unknown filepath type:" + type)
 
-        user = self.get_request_user_id(request)
         path = user_root = os.path.abspath(os.path.join(root_dir, user))
 
         # prevent leaving /{type}
@@ -88,7 +88,7 @@ class UserManager():
             if args.multi_user:
                 return web.json_response({"storage": "server", "users": self.users})
             else:
-                user_dir = self.get_request_user_filepath(request, None, create_dir=False)
+                user_dir = self.get_user_filepath(self.get_request_user_id(request), None, create_dir=False)
                 return web.json_response({
                     "storage": "server",
                     "migrated": os.path.exists(user_dir)
@@ -110,7 +110,7 @@ class UserManager():
             if not file:
                 return web.Response(status=400)
 
-            path = self.get_request_user_filepath(request, file)
+            path = self.get_user_filepath(self.get_request_user_id(request), file)
             if not path:
                 return web.Response(status=403)
 
@@ -125,7 +125,7 @@ class UserManager():
             if not file:
                 return web.Response(status=400)
 
-            path = self.get_request_user_filepath(request, file)
+            path = self.get_user_filepath(self.get_request_user_id(request), file)
             if not path:
                 return web.Response(status=403)
 

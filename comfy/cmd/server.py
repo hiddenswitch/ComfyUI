@@ -10,6 +10,7 @@ import struct
 import sys
 import traceback
 import uuid
+import subprocess
 from asyncio import Future, AbstractEventLoop
 from enum import Enum
 from io import BytesIO
@@ -57,14 +58,6 @@ async def send_socket_catch_exception(function, message):
         logging.warning("send error: {}".format(err))
 
 
-@web.middleware
-async def cache_control(request: web.Request, handler):
-    response: web.Response = await handler(request)
-    if request.path.endswith('.js') or request.path.endswith('.css'):
-        response.headers.setdefault('Cache-Control', 'no-cache')
-    return response
-
-
 def create_cors_middleware(allowed_origin: str):
     @web.middleware
     async def cors_middleware(request: web.Request, handler):
@@ -93,7 +86,7 @@ class PromptServer(ExecutorToClientProgress):
         mimetypes.types_map['.js'] = 'application/javascript; charset=utf-8'
 
         self.address: str = "0.0.0.0"
-        self.user_manager = UserManager()
+        self.user_manager = UserManager(self)
         # todo: this is probably read by custom nodes elsewhere
         self.supports: List[str] = ["custom_nodes_from_web"]
         self.prompt_queue: AbstractPromptQueue | AsyncAbstractPromptQueue | None = None
@@ -104,7 +97,7 @@ class PromptServer(ExecutorToClientProgress):
         self._external_address: Optional[str] = None
         self.receive_all_progress_notifications = True
 
-        middlewares = [cache_control]
+        middlewares = [self.cache_control, self.static_files]
         if args.enable_cors_header:
             middlewares.append(create_cors_middleware(args.enable_cors_header))
 
@@ -113,9 +106,10 @@ class PromptServer(ExecutorToClientProgress):
                                                     handler_args={'max_field_size': 16380},
                                                     middlewares=middlewares)
         self.sockets = dict()
-        web_root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../web")
+        self.pull_frontends()
+        web_root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../web/", self.user_manager.frontend)
         if not os.path.exists(web_root_path):
-            web_root_path = get_package_as_path('comfy', 'web/')
+            web_root_path = get_package_as_path('comfy', 'web/classic/')
         self.web_root = web_root_path
         routes = web.RouteTableDef()
         self.routes: web.RouteTableDef = routes
@@ -694,6 +688,21 @@ class PromptServer(ExecutorToClientProgress):
             last_history_item: HistoryEntry = history_items[-1]
             prompt = last_history_item['prompt'][2]
             return web.json_response(prompt, status=200)
+        
+    @web.middleware
+    async def cache_control(self, request: web.Request, handler):
+        response: web.Response = await handler(request)
+        if request.path.endswith('.js') or request.path.endswith('.css'):
+            response.headers.setdefault('Cache-Control', 'no-cache')
+        return response
+
+    @web.middleware
+    async def static_files(self, request, handler):
+        if request.path.startswith('/'):
+            file_path = os.path.join(self.web_root, request.path.lstrip('/'))
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                return web.FileResponse(file_path)
+        return await handler(request)
 
     @property
     def external_address(self):
@@ -711,10 +720,6 @@ class PromptServer(ExecutorToClientProgress):
             self.app.add_routes([
                 web.static('/extensions/' + quote(name), dir),
             ])
-
-        self.app.add_routes([
-            web.static('/', self.web_root),
-        ])
 
     def get_queue_info(self):
         prompt_info = {}
@@ -780,6 +785,14 @@ class PromptServer(ExecutorToClientProgress):
 
     def queue_updated(self):
         self.send_sync("status", {"status": self.get_queue_info()})
+    
+    def pull_frontends(self):
+        frontends_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../web/")
+        subprocess.run(["git", "submodule", "update", "--remote"], cwd=frontends_path) # assume git is installed
+    
+    def update_frontend(self, frontend):
+        self.frontend = frontend
+        self.web_root = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../web/", self.frontend)
 
     async def publish_loop(self):
         while True:
