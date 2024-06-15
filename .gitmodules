@@ -1,0 +1,4 @@
+[submodule "comfy/web/sabre"]
+	path = comfy/web/sabre
+	url = ../../MaxTretikov/SabreUI.git
+	branch = build
