@@ -10,11 +10,11 @@ import struct
 import sys
 import traceback
 import uuid
-import subprocess
 from asyncio import Future, AbstractEventLoop
 from enum import Enum
 from io import BytesIO
 from posixpath import join as urljoin
+from subprocess import Popen, PIPE
 from typing import List, Optional
 from urllib.parse import quote, urlencode
 
@@ -788,7 +788,15 @@ class PromptServer(ExecutorToClientProgress):
     
     def pull_frontends(self):
         frontends_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../web/")
-        subprocess.run(["git", "submodule", "update", "--remote"], cwd=frontends_path) # assume git is installed
+        p = Popen(["git", "submodule", "update", "--remote"], cwd=frontends_path, stdout=PIPE, stderr=PIPE)
+        output, error = p.communicate()
+        if p.returncode == 127:
+            print("Warning: git must be installed to automatically download the latest frontends.")
+        elif p.returncode != 0:
+            print("Error updating frontends: {}".format(error.decode()))
+        else:
+            if output:
+                print("Frontends updated successfully:".format(output.decode()))
     
     def update_frontend(self, frontend):
         self.frontend = frontend
