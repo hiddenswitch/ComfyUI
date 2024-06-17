@@ -796,7 +796,7 @@ class PromptServer(ExecutorToClientProgress):
             print("Error updating frontends: {}".format(error.decode()))
         else:
             if output:
-                print("Frontends updated successfully:".format(output.decode()))
+                print("Frontends updated successfully: {}".format(output.decode()))
     
     def update_frontend(self, frontend):
         self.frontend = frontend
