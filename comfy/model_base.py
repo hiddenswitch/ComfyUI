@@ -155,9 +155,10 @@ class BaseModel(torch.nn.Module):
             data = torch.cat(cond_concat, dim=1)
             out['c_concat'] = conds.CONDNoiseShape(data)
 
-        adm = self.encode_adm(**kwargs)
-        if adm is not None:
-            out['y'] = conds.CONDRegular(adm)
+        if self.is_adm():
+            adm = self.encode_adm(**kwargs)
+            if adm is not None:
+                out['y'] = conds.CONDRegular(adm)
 
         cross_attn = kwargs.get("cross_attn", None)
         if cross_attn is not None:
