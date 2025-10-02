@@ -6,6 +6,7 @@ import json
 import os
 import random
 
+from typing import Any
 import av
 import torch
 
@@ -15,6 +16,7 @@ import logging
 from comfy.cli_args import args
 from comfy.cmd import folder_paths
 from comfy.comfy_types import FileLocator
+from comfy.component_model.audio_types import Audio, LatentAudio, AudioTensor
 
 
 class TorchAudioNotFoundError(ModuleNotFoundError):
@@ -32,15 +34,15 @@ class EmptyLatentAudio:
                 "optional": {"batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "tooltip": "The number of latent images in the batch."}),
                              }}
 
-    RETURN_TYPES = ("LATENT",)
+    RETURN_TYPES = ("LATENT",)  # LatentAudio
     FUNCTION = "generate"
 
     CATEGORY = "latent/audio"
 
-    def generate(self, seconds: float, batch_size: int = 1):
+    def generate(self, seconds: float, batch_size: int = 1) -> tuple[LatentAudio]:
         length = round((seconds * 44100 / 2048) / 2) * 2
         latent = torch.zeros([batch_size, 64, length], device=self.device)
-        return ({"samples": latent, "type": "audio"},)
+        return (LatentAudio(**{"samples": latent, "type": "audio"}),)
 
 
 class ConditioningStableAudio:
@@ -62,20 +64,20 @@ class ConditioningStableAudio:
     def append(self, positive, negative, seconds_start, seconds_total):
         positive = node_helpers.conditioning_set_values(positive, {"seconds_start": seconds_start, "seconds_total": seconds_total})
         negative = node_helpers.conditioning_set_values(negative, {"seconds_start": seconds_start, "seconds_total": seconds_total})
-        return (positive, negative)
+        return positive, negative
 
 
 class VAEEncodeAudio:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": {"audio": ("AUDIO",), "vae": ("VAE",)}}
+        return {"required": {"audio": ("AUDIO",), "vae": ("VAE",)}}  # Audio
 
-    RETURN_TYPES = ("LATENT",)
+    RETURN_TYPES = ("LATENT",)  # LatentAudio
     FUNCTION = "encode"
 
     CATEGORY = "latent/audio"
 
-    def encode(self, vae, audio):
+    def encode(self, vae, audio: Audio) -> tuple[LatentAudio]:
         sample_rate = audio["sample_rate"]
         if 44100 != sample_rate:
             try:
@@ -87,28 +89,28 @@ class VAEEncodeAudio:
             waveform = audio["waveform"]
 
         t = vae.encode(waveform.movedim(1, -1))
-        return ({"samples": t},)
+        return LatentAudio(**{"samples": t}, )  # type: ignore
 
 
 class VAEDecodeAudio:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": {"samples": ("LATENT",), "vae": ("VAE",)}}
+        return {"required": {"samples": ("LATENT",), "vae": ("VAE",)}}  # LatentAudio
 
     RETURN_TYPES = ("AUDIO",)
     FUNCTION = "decode"
 
     CATEGORY = "latent/audio"
 
-    def decode(self, vae, samples):
+    def decode(self, vae, samples: LatentAudio) -> tuple[Audio]:
         audio = vae.decode(samples["samples"]).movedim(-1, 1)
         std = torch.std(audio, dim=[1, 2], keepdim=True) * 5.0
         std[std < 1.0] = 1.0
         audio /= std
-        return ({"waveform": audio, "sample_rate": 44100},)
+        return (Audio(**{"waveform": audio, "sample_rate": 44100}),)
 
 
-def save_audio(self, audio, filename_prefix="ComfyUI", format="flac", prompt=None, extra_pnginfo=None, quality="128k"):
+def save_audio(self, audio: Audio, filename_prefix: str = "ComfyUI", format: str = "flac", prompt: Any | None = None, extra_pnginfo: dict | None = None, quality: str = "128k") -> dict:
     try:
         import torchaudio  # pylint: disable=import-error
     except ImportError as exc_info:
@@ -235,7 +237,7 @@ class SaveAudio:
 
     CATEGORY = "audio"
 
-    def save_flac(self, audio, filename_prefix="ComfyUI", format="flac", prompt=None, extra_pnginfo=None):
+    def save_flac(self, audio: Audio, filename_prefix: str = "ComfyUI", format: str = "flac", prompt: Any | None = None, extra_pnginfo: dict | None = None):
         return save_audio(self, audio, filename_prefix, format, prompt, extra_pnginfo)
 
 
@@ -261,7 +263,7 @@ class SaveAudioMP3:
 
     CATEGORY = "audio"
 
-    def save_mp3(self, audio, filename_prefix="ComfyUI", format="mp3", prompt=None, extra_pnginfo=None, quality="128k"):
+    def save_mp3(self, audio: Audio, filename_prefix: str = "ComfyUI", format: str = "mp3", prompt: Any | None = None, extra_pnginfo: dict | None = None, quality: str = "128k"):
         return save_audio(self, audio, filename_prefix, format, prompt, extra_pnginfo, quality)
 
 
@@ -287,7 +289,7 @@ class SaveAudioOpus:
 
     CATEGORY = "audio"
 
-    def save_opus(self, audio, filename_prefix="ComfyUI", format="opus", prompt=None, extra_pnginfo=None, quality="V3"):
+    def save_opus(self, audio: Audio, filename_prefix: str = "ComfyUI", format: str = "opus", prompt: Any | None = None, extra_pnginfo: dict | None = None, quality: str = "V3"):
         return save_audio(self, audio, filename_prefix, format, prompt, extra_pnginfo, quality)
 
 
@@ -316,7 +318,7 @@ def f32_pcm(wav: torch.Tensor) -> torch.Tensor:
     raise ValueError(f"Unsupported wav dtype: {wav.dtype}")
 
 
-def load(filepath: str) -> tuple[torch.Tensor, int]:
+def load(filepath: str) -> tuple[AudioTensor, int]:
     with av.open(filepath) as af:
         if not af.streams.audio:
             raise ValueError("No audio stream found in the file.")
@@ -340,7 +342,7 @@ def load(filepath: str) -> tuple[torch.Tensor, int]:
 
         wav = torch.cat(frames, dim=1)
         wav = f32_pcm(wav)
-        return wav, sr
+    return wav, sr
 
 
 class LoadAudio:
@@ -355,7 +357,7 @@ class LoadAudio:
     RETURN_TYPES = ("AUDIO",)
     FUNCTION = "load"
 
-    def load(self, audio):
+    def load(self, audio: str) -> tuple[Audio]:
         try:
             import torchaudio  # pylint: disable=import-error
         except ImportError as exc_info:
@@ -363,11 +365,11 @@ class LoadAudio:
 
         audio_path = folder_paths.get_annotated_filepath(audio)
         waveform, sample_rate = load(audio_path)
-        audio = {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
-        return (audio,)
+        audio_out: Audio = {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
+        return (audio_out,)
 
     @classmethod
-    def IS_CHANGED(s, audio):
+    def IS_CHANGED(s, audio: str) -> str:
         image_path = folder_paths.get_annotated_filepath(audio)
         m = hashlib.sha256()
         with open(image_path, 'rb') as f:
@@ -375,7 +377,7 @@ class LoadAudio:
         return m.digest().hex()
 
     @classmethod
-    def VALIDATE_INPUTS(s, audio):
+    def VALIDATE_INPUTS(s, audio: str) -> bool | str:
         if not folder_paths.exists_annotated_filepath(audio):
             return "Invalid audio file: {}".format(audio)
         return True
@@ -391,16 +393,16 @@ class RecordAudio:
     RETURN_TYPES = ("AUDIO",)
     FUNCTION = "load"
 
-    def load(self, audio):
+    def load(self, audio: str) -> tuple[Audio]:
         audio_path = folder_paths.get_annotated_filepath(audio)
         try:
             import torchaudio  # pylint: disable=import-error
         except (ImportError, ModuleNotFoundError):
             raise TorchAudioNotFoundError()
 
-        waveform, sample_rate = torchaudio.load(audio_path)
-        audio = {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
-        return (audio,)
+        waveform, sample_rate = torchaudio.load(audio_path)  # type: ignore
+        audio_out: Audio = {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
+        return (audio_out,)
 
 
 class TrimAudioDuration:
@@ -419,7 +421,7 @@ class TrimAudioDuration:
     CATEGORY = "audio"
     DESCRIPTION = "Trim audio tensor into chosen time range."
 
-    def trim(self, audio, start_index, duration):
+    def trim(self, audio: Audio, start_index: float, duration: float) -> tuple[Audio]:
         waveform = audio["waveform"]
         sample_rate = audio["sample_rate"]
         audio_length = waveform.shape[-1]
@@ -436,7 +438,7 @@ class TrimAudioDuration:
         if start_frame >= end_frame:
             raise ValueError("AudioTrim: Start time must be less than end time and be within the audio length.")
 
-        return ({"waveform": waveform[..., start_frame:end_frame], "sample_rate": sample_rate},)
+        return (Audio(**{"waveform": waveform[..., start_frame:end_frame], "sample_rate": sample_rate}),)
 
 
 class SplitAudioChannels:
@@ -452,7 +454,7 @@ class SplitAudioChannels:
     CATEGORY = "audio"
     DESCRIPTION = "Separates the audio into left and right channels."
 
-    def separate(self, audio):
+    def separate(self, audio: Audio) -> tuple[Audio, Audio]:
         waveform = audio["waveform"]
         sample_rate = audio["sample_rate"]
 
@@ -462,10 +464,10 @@ class SplitAudioChannels:
         left_channel = waveform[..., 0:1, :]
         right_channel = waveform[..., 1:2, :]
 
-        return ({"waveform": left_channel, "sample_rate": sample_rate}, {"waveform": right_channel, "sample_rate": sample_rate})
+        return {"waveform": left_channel, "sample_rate": sample_rate}, {"waveform": right_channel, "sample_rate": sample_rate}
 
 
-def match_audio_sample_rates(waveform_1, sample_rate_1, waveform_2, sample_rate_2):
+def match_audio_sample_rates(waveform_1: AudioTensor, sample_rate_1: int, waveform_2: AudioTensor, sample_rate_2: int) -> tuple[AudioTensor, AudioTensor, int]:
     try:
         import torchaudio  # pylint: disable=import-error
     except ImportError as exc_info:
@@ -499,7 +501,7 @@ class AudioConcat:
     CATEGORY = "audio"
     DESCRIPTION = "Concatenates the audio1 to audio2 in the specified direction."
 
-    def concat(self, audio1, audio2, direction):
+    def concat(self, audio1: Audio, audio2: Audio, direction: str) -> tuple[Audio]:
         waveform_1 = audio1["waveform"]
         waveform_2 = audio2["waveform"]
         sample_rate_1 = audio1["sample_rate"]
@@ -520,7 +522,7 @@ class AudioConcat:
         elif direction == 'before':
             concatenated_audio = torch.cat((waveform_2, waveform_1), dim=2)
 
-        return ({"waveform": concatenated_audio, "sample_rate": output_sample_rate},)
+        return (Audio(**{"waveform": concatenated_audio, "sample_rate": output_sample_rate}),)
 
 
 class AudioMerge:
@@ -539,7 +541,7 @@ class AudioMerge:
     CATEGORY = "audio"
     DESCRIPTION = "Combine two audio tracks by overlaying their waveforms."
 
-    def merge(self, audio1, audio2, merge_method):
+    def merge(self, audio1: Audio, audio2: Audio, merge_method: str) -> tuple[Audio]:
         waveform_1 = audio1["waveform"]
         waveform_2 = audio2["waveform"]
         sample_rate_1 = audio1["sample_rate"]
@@ -574,7 +576,7 @@ class AudioMerge:
         if max_val > 1.0:
             waveform = waveform / max_val
 
-        return ({"waveform": waveform, "sample_rate": output_sample_rate},)
+        return (Audio(**{"waveform": waveform, "sample_rate": output_sample_rate}),)
 
 
 class AudioAdjustVolume:
@@ -589,7 +591,7 @@ class AudioAdjustVolume:
     FUNCTION = "adjust_volume"
     CATEGORY = "audio"
 
-    def adjust_volume(self, audio, volume):
+    def adjust_volume(self, audio: Audio, volume: int) -> tuple[Audio]:
         if volume == 0:
             return (audio,)
         waveform = audio["waveform"]
@@ -598,7 +600,7 @@ class AudioAdjustVolume:
         gain = 10 ** (volume / 20)
         waveform = waveform * gain
 
-        return ({"waveform": waveform, "sample_rate": sample_rate},)
+        return (Audio(**{"waveform": waveform, "sample_rate": sample_rate}),)
 
 
 class EmptyAudio:
@@ -614,10 +616,10 @@ class EmptyAudio:
     FUNCTION = "create_empty_audio"
     CATEGORY = "audio"
 
-    def create_empty_audio(self, duration, sample_rate, channels):
+    def create_empty_audio(self, duration: float, sample_rate: int, channels: int) -> tuple[Audio]:
         num_samples = int(round(duration * sample_rate))
         waveform = torch.zeros((1, channels, num_samples), dtype=torch.float32)
-        return ({"waveform": waveform, "sample_rate": sample_rate},)
+        return (Audio(**{"waveform": waveform, "sample_rate": sample_rate}),)
 
 
 NODE_CLASS_MAPPINGS = {
