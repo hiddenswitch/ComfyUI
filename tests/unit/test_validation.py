@@ -6,7 +6,9 @@ from pytest_mock import MockerFixture
 
 from comfy.cli_args import args
 from comfy.cmd.execution import validate_prompt
-from comfy.nodes_context import nodes
+from comfy.nodes_context import get_nodes
+
+import uuid
 
 valid_prompt: Final[dict] = {
     "1": {
@@ -73,6 +75,7 @@ known_models: ContextVar[list[str]] = ContextVar('known_models', default=[])
 
 @pytest.fixture
 def mock_nodes(mocker: MockerFixture):
+    nodes = get_nodes()
     class MockCheckpointLoaderSimple:
         @staticmethod
         def INPUT_TYPES():
@@ -153,15 +156,15 @@ def disable_known_models():
     args.disable_known_models = original_value
 
 
-def test_validate_prompt_valid(mock_nodes):
+async def test_validate_prompt_valid(mock_nodes):
     prompt = valid_prompt
-    result = validate_prompt(prompt)
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert result.valid
     assert result.error is None
     assert set(result.good_output_node_ids) == {"7"}
 
 
-def test_validate_prompt_invalid_node(mock_nodes):
+async def test_validate_prompt_invalid_node(mock_nodes):
     prompt = {
         "1": {
             "inputs": {},
@@ -169,13 +172,13 @@ def test_validate_prompt_invalid_node(mock_nodes):
         },
     }
 
-    result = validate_prompt(prompt)
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert not result.valid
     assert result.error["type"] == "invalid_prompt"
     assert "NonExistentNode" in result.error["message"]
 
 
-def test_prompt_has_no_output(mock_nodes):
+async def test_prompt_has_no_output(mock_nodes):
     prompt = {
         "1": {
             "inputs": {},
@@ -183,12 +186,12 @@ def test_prompt_has_no_output(mock_nodes):
         },
     }
 
-    result = validate_prompt(prompt)
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert not result.valid
     assert result.error["type"] == "prompt_no_outputs"
 
 
-def test_validate_prompt_invalid_input_type(mock_nodes):
+async def test_validate_prompt_invalid_input_type(mock_nodes):
     prompt = valid_prompt.copy()
     prompt["1"] = {
         "inputs": {
@@ -197,10 +200,10 @@ def test_validate_prompt_invalid_input_type(mock_nodes):
         "class_type": "CheckpointLoaderSimple",
     }
 
-    result = validate_prompt(prompt)
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert not result.valid
     assert result.error["type"] == "prompt_outputs_failed_validation"
-    assert result.node_errors["1"]["errors"][0]["type"] == "exception_during_inner_validation"
+    assert result.node_errors["1"]["errors"][0]["type"] == "value_not_in_list"
 
 
 @pytest.mark.parametrize("ckpt_name, known_model", [
@@ -212,7 +215,7 @@ def test_validate_prompt_invalid_input_type(mock_nodes):
     ("C:\\Windows\\Temp\\model.safetensors", "C:/Windows/Temp/model.safetensors"),
     ("/home/user/models/model.safetensors", "/home/user/models/model.safetensors"),
 ])
-def test_validate_prompt_path_variations(mock_nodes, disable_known_models, ckpt_name, known_model):
+async def test_validate_prompt_path_variations(mock_nodes, disable_known_models, ckpt_name, known_model):
     token = known_models.set([known_model])
 
     try:
@@ -224,23 +227,23 @@ def test_validate_prompt_path_variations(mock_nodes, disable_known_models, ckpt_
             "class_type": "CheckpointLoaderSimple",
         }
 
-        result = validate_prompt(prompt)
+        result = await validate_prompt(str(uuid.uuid4()), prompt)
         assert result.valid, f"Failed for ckpt_name: {ckpt_name}, known_model: {known_model}"
         assert result.error is None, f"Error for ckpt_name: {ckpt_name}, known_model: {known_model}"
     finally:
         known_models.reset(token)
 
 
-def test_validate_prompt_default_models(mock_nodes, disable_known_models):
+async def test_validate_prompt_default_models(mock_nodes, disable_known_models):
     prompt = valid_prompt.copy()
     prompt["1"]["inputs"]["ckpt_name"] = "model1.safetensors"
 
-    result = validate_prompt(prompt)
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert result.valid, "Failed for default model list"
     assert result.error is None, "Error for default model list"
 
 
-def test_validate_prompt_no_outputs(mock_nodes):
+async def test_validate_prompt_no_outputs(mock_nodes):
     prompt = {
         "1": {
             "inputs": {
@@ -250,6 +253,6 @@ def test_validate_prompt_no_outputs(mock_nodes):
         },
     }
 
-    result = validate_prompt(prompt)
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert not result.valid
     assert result.error["type"] == "prompt_no_outputs"

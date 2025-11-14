@@ -18,24 +18,28 @@ os.environ["BITSANDBYTES_NOWELCOME"] = "1"
 import ctypes
 import importlib.util
 import logging
+import os
 import shutil
-import sys
 import warnings
 
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
-from opentelemetry.semconv.resource import ResourceAttributes as ResAttrs
+import fsspec
+from opentelemetry.instrumentation.urllib3 import URLLib3Instrumentor
 
 from .. import options
 from ..app import logger
-from ..tracing_compatibility import ProgressSpanSampler
-from ..tracing_compatibility import patch_spanbuilder_set_channel
-from ..vendor.aiohttp_server_instrumentation import AioHttpServerInstrumentor
+from ..cli_args_types import Configuration
+from ..component_model import package_filesystem
+
+os.environ['TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'] = '1'
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
+os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
+os.environ["TORCHINDUCTOR_AUTOGRAD_CACHE"] = "1"
+os.environ["BITSANDBYTES_NOWELCOME"] = "1"
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
+os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+os.environ['DO_NOT_TRACK'] = '1'
+if os.name == "nt":
+    os.environ['MIMALLOC_PURGE_DELAY'] = '0'
 
 this_logger = logging.getLogger(__name__)
 
@@ -46,17 +50,37 @@ warnings.filterwarnings("ignore", message="torch.utils._pytree._register_pytree_
 warnings.filterwarnings("ignore", message="Torch was not compiled with flash attention.")
 warnings.filterwarnings("ignore", message=".*Torch was not compiled with flash attention.*")
 warnings.filterwarnings('ignore', category=FutureWarning, message=r'`torch\.cuda\.amp\.custom_fwd.*')
+warnings.filterwarnings("ignore", category=UserWarning, message="Please use the new API settings to control TF32 behavior.*")
 warnings.filterwarnings("ignore", message="Importing from timm.models.registry is deprecated, please import via timm.models", category=FutureWarning)
 warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated, please import via timm.layers", category=FutureWarning)
 warnings.filterwarnings("ignore", message="Inheritance class _InstrumentedApplication from web.Application is discouraged", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Please import `gaussian_filter` from the `scipy.ndimage` namespace; the `scipy.ndimage.filters` namespace is deprecated", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="The installed version of bitsandbytes was compiled without GPU support")
+warnings.filterwarnings("ignore", category=UserWarning, message="Unsupported Windows version .* ONNX Runtime supports Windows 10 and above, only.")
+log_msg_to_filter = "NOTE: Redirects are currently not supported in Windows or MacOs."
+logging.getLogger("torch.distributed.elastic.multiprocessing.redirects").addFilter(
+    lambda record: log_msg_to_filter not in record.getMessage()
+)
+logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
+logging.getLogger("asyncio").addFilter(lambda record: 'Using selector:' not in record.getMessage())
+logging.getLogger("requests_cache").setLevel(logging.ERROR)
+logging.getLogger("fsspec").setLevel(logging.WARNING)
 
 from ..cli_args import args
+
+if args.default_device is not None:
+    default_dev = args.default_device
+    devices = list(range(32))
+    devices.remove(default_dev)
+    devices.insert(0, default_dev)
+    devices = ','.join(map(str, devices))
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
+    os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
 
 if args.cuda_device is not None:
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda_device)
     os.environ['HIP_VISIBLE_DEVICES'] = str(args.cuda_device)
+    os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(args.cuda_device)
     this_logger.info("Set cuda device to: {}".format(args.cuda_device))
 
 if args.deterministic:
@@ -102,9 +126,24 @@ def _fix_pytorch_240():
 
 
 def _create_tracer():
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry.semconv.attributes import service_attributes
+
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
+    from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
+    from opentelemetry.instrumentation.aiohttp_server import AioHttpServerInstrumentor
+    from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
+    from ..tracing_compatibility import ProgressSpanSampler
+    from ..tracing_compatibility import patch_spanbuilder_set_channel
+
     resource = Resource.create({
-        ResAttrs.SERVICE_NAME: args.otel_service_name,
-        ResAttrs.SERVICE_VERSION: args.otel_service_version,
+        service_attributes.SERVICE_NAME: args.otel_service_name,
+        service_attributes.SERVICE_VERSION: args.otel_service_version,
     })
 
     # omit progress spans from aio pika
@@ -114,32 +153,42 @@ def _create_tracer():
     has_endpoint = args.otel_exporter_otlp_endpoint is not None
 
     if has_endpoint:
-        otlp_exporter = OTLPSpanExporter()
+        exporter = OTLPSpanExporter()
     else:
-        otlp_exporter = SpanExporter()
+        exporter = SpanExporter()
 
-    processor = BatchSpanProcessor(otlp_exporter)
+    processor = BatchSpanProcessor(exporter)
     provider.add_span_processor(processor)
-
-    trace.set_tracer_provider(provider)
 
     # enable instrumentation
     patch_spanbuilder_set_channel()
+
     AioPikaInstrumentor().instrument()
     AioHttpServerInstrumentor().instrument()
+    AioHttpClientInstrumentor().instrument()
     RequestsInstrumentor().instrument()
-    return trace.get_tracer(args.otel_service_name)
+    URLLib3Instrumentor().instrument()
+
+
+    provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
+    # makes this behave better as a library
+    return trace.get_tracer(args.otel_service_name, tracer_provider=provider)
 
 
 def _configure_logging():
     logging_level = args.logging_level
-    if len(args.workflows) > 0 or args.distributed_queue_worker or args.distributed_queue_frontend or args.distributed_queue_connection_uri is not None:
-        logging.basicConfig(level=logging_level, stream=sys.stderr)
-    else:
-        logger.setup_logger(logging_level)
+    logger.setup_logger(logging_level)
 
+def _register_fsspec_fs():
+    fsspec.register_implementation(
+        package_filesystem.PkgResourcesFileSystem.protocol,
+        package_filesystem.PkgResourcesFileSystem,
+    )
+
+args: Configuration
 
 _configure_logging()
 _fix_pytorch_240()
+_register_fsspec_fs()
 tracer = _create_tracer()
 __all__ = ["args", "tracer"]

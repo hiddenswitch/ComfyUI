@@ -15,26 +15,88 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
+import contextlib
 import logging
-from typing import Optional, Type, Union
-
 import torch
 from torch import Tensor
+from typing import Optional, Type, Union
 
 from . import model_management, rmsnorm
+from .interruption import throw_exception_if_processing_interrupted
 from .cli_args import args, PerformanceFeature
 from .execution_context import current_execution_context
 from .float import stochastic_rounding
 
-cast_to = model_management.cast_to  # TODO: remove once no more references
-
 logger = logging.getLogger(__name__)
+
+_RUN_EVERY_OP_ENABLED = model_management.torch_version_numeric >= (2, 5)
+
+
+def run_every_op():
+    global _RUN_EVERY_OP_ENABLED
+    # this is not available on torch 2.3 by testing
+    if not _RUN_EVERY_OP_ENABLED or torch.compiler.is_compiling():  # pylint: disable=no-member
+        return
+
+    throw_exception_if_processing_interrupted()
+
+
+scaled_dot_product_attention = None
+
+
+def _scaled_dot_product_attention(q, k, v, *args, **kwargs):
+    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+
+
+try:
+    if torch.cuda.is_available():
+        from torch.nn.attention import SDPBackend, sdpa_kernel  # pylint: disable=import-error
+        import inspect
+
+        if "set_priority" in inspect.signature(sdpa_kernel).parameters:
+            SDPA_BACKEND_PRIORITY = [
+                SDPBackend.FLASH_ATTENTION,
+                SDPBackend.EFFICIENT_ATTENTION,
+                SDPBackend.MATH,
+            ]
+
+            SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
+
+
+            def _scaled_dot_product_attention_sdpa(q, k, v, *args, **kwargs):
+                with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
+                    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+
+
+            scaled_dot_product_attention = _scaled_dot_product_attention_sdpa
+        else:
+            logger.warning("Torch version too old to set sdpa backend priority, even though you are using CUDA")
+            scaled_dot_product_attention = _scaled_dot_product_attention
+    else:
+        scaled_dot_product_attention = _scaled_dot_product_attention
+except Exception as exc_info:
+    if torch.cuda.is_available():
+        logger.debug("Could not set sdpa backend priority.", exc_info=exc_info)
+    scaled_dot_product_attention = _scaled_dot_product_attention
+
+NVIDIA_MEMORY_CONV_BUG_WORKAROUND = False
+try:
+    if model_management.is_nvidia():
+        if torch.backends.cudnn.version() >= 91002 and model_management.torch_version_numeric >= (2, 9) and model_management.torch_version_numeric <= (2, 10):
+            # TODO: change upper bound version once it's fixed'
+            NVIDIA_MEMORY_CONV_BUG_WORKAROUND = True
+            logger.debug("working around nvidia conv3d memory bug.")
+except:
+    pass
+
+cast_to = model_management.cast_to  # TODO: remove once no more references
 
 
 def cast_to_input(weight, input, non_blocking=False, copy=True):
     return model_management.cast_to(weight, input.dtype, input.device, non_blocking=non_blocking, copy=copy)
 
 
+@torch.compiler.disable()
 def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None):
     if input is not None:
         if dtype is None:
@@ -44,20 +106,30 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None):
         if device is None:
             device = input.device
 
+    offload_stream = model_management.get_offload_stream(device)
+    if offload_stream is not None:
+        wf_context = offload_stream
+    else:
+        wf_context = contextlib.nullcontext()
+
     bias = None
     non_blocking = True if torch.jit.is_tracing() or torch.jit.is_scripting() else model_management.device_supports_non_blocking(device)
     if s.bias is not None:
         has_function = len(s.bias_function) > 0
-        bias = model_management.cast_to(s.bias, bias_dtype, device, non_blocking=non_blocking, copy=has_function)
+        bias = model_management.cast_to(s.bias, bias_dtype, device, non_blocking=non_blocking, copy=has_function, stream=offload_stream)
         if has_function:
-            for f in s.bias_function:
-                bias = f(bias)
+            with wf_context:
+                for f in s.bias_function:
+                    bias = f(bias)
 
     has_function = len(s.weight_function) > 0
-    weight = model_management.cast_to(s.weight, dtype, device, non_blocking=non_blocking, copy=has_function)
+    weight = model_management.cast_to(s.weight, dtype, device, non_blocking=non_blocking, copy=has_function, stream=offload_stream)
     if has_function:
-        for f in s.weight_function:
-            weight = f(weight)
+        with wf_context:
+            for f in s.weight_function:
+                weight = f(weight)
+
+    model_management.sync_stream(device, offload_stream)
     return weight, bias
 
 
@@ -123,6 +195,7 @@ class disable_weight_init:
             return torch.nn.functional.linear(input, weight, bias)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -137,6 +210,7 @@ class disable_weight_init:
             return self._conv_forward(input, weight, bias)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -151,6 +225,7 @@ class disable_weight_init:
             return self._conv_forward(input, weight, bias)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -160,11 +235,21 @@ class disable_weight_init:
         def reset_parameters(self):
             return None
 
+        def _conv_forward(self, input, weight, bias, *args, **kwargs):
+            if NVIDIA_MEMORY_CONV_BUG_WORKAROUND and weight.dtype in (torch.float16, torch.bfloat16):
+                out = torch.cudnn_convolution(input, weight, self.padding, self.stride, self.dilation, self.groups, benchmark=False, deterministic=False, allow_tf32=True)
+                if bias is not None:
+                    out += bias.reshape((1, -1) + (1,) * (out.ndim - 2))
+                return out
+            else:
+                return super()._conv_forward(input, weight, bias, *args, **kwargs)
+
         def forward_comfy_cast_weights(self, input):
             weight, bias = cast_bias_weight(self, input)
             return self._conv_forward(input, weight, bias)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -179,6 +264,7 @@ class disable_weight_init:
             return torch.nn.functional.group_norm(input, self.num_groups, weight, bias, self.eps)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -197,6 +283,7 @@ class disable_weight_init:
             return torch.nn.functional.layer_norm(input, self.normalized_shape, weight, bias, self.eps)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -216,6 +303,7 @@ class disable_weight_init:
             # return torch.nn.functional.rms_norm(input, self.normalized_shape, weight, self.eps)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -237,6 +325,7 @@ class disable_weight_init:
                 output_padding, self.groups, self.dilation)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -258,6 +347,7 @@ class disable_weight_init:
                 output_padding, self.groups, self.dilation)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -276,6 +366,7 @@ class disable_weight_init:
             return torch.nn.functional.embedding(input, weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse).to(dtype=output_dtype)
 
         def forward(self, *args, **kwargs):
+            run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
@@ -351,10 +442,10 @@ def fp8_linear(self, input):
         if scale_input is None:
             scale_input = torch.ones((), device=input.device, dtype=torch.float32)
             input = torch.clamp(input, min=-448, max=448, out=input)
-            input = input.reshape(-1, input_shape[2]).to(dtype)
+            input = input.reshape(-1, input_shape[2]).to(dtype).contiguous()
         else:
             scale_input = scale_input.to(input.device)
-            input = (input * (1.0 / scale_input).to(input_dtype)).reshape(-1, input_shape[2]).to(dtype)
+            input = (input * (1.0 / scale_input).to(input_dtype)).reshape(-1, input_shape[2]).to(dtype).contiguous()
 
         if bias is not None:
             o = torch._scaled_mm(input, w, out_dtype=input_dtype, bias=bias, scale_a=scale_input, scale_b=scale_weight)
@@ -380,9 +471,13 @@ class fp8_ops(manual_cast):
             return None
 
         def forward_comfy_cast_weights(self, input):
-            out = fp8_linear(self, input)
-            if out is not None:
-                return out
+            if not self.training:
+                try:
+                    out = fp8_linear(self, input)
+                    if out is not None:
+                        return out
+                except Exception as e:
+                    logger.info("Exception during fp8 op: {}".format(e))
 
             weight, bias = cast_bias_weight(self, input)
             return torch.nn.functional.linear(input, weight, bias)
@@ -433,8 +528,10 @@ def scaled_fp8_ops(fp8_matrix_mult=False, scale_input=False, override_dtype=None
                 else:
                     return weight * self.scale_weight.to(device=weight.device, dtype=weight.dtype)
 
-            def set_weight(self, weight, inplace_update=False, seed=None, **kwargs):
+            def set_weight(self, weight, inplace_update=False, seed=None, return_weight=False, **kwargs):
                 weight = stochastic_rounding(weight / self.scale_weight.to(device=weight.device, dtype=weight.dtype), self.weight.dtype, seed=seed)
+                if return_weight:
+                    return weight
                 if inplace_update:
                     self.weight.data.copy_(weight)
                 else:
@@ -490,7 +587,7 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
             weight_dtype == torch.float16 and
             (compute_dtype == torch.float16 or compute_dtype is None)
     ):
-        logging.info("Using cublas ops")
+        logger.info("Using cublas ops")
         return cublas_ops
 
     if compute_dtype is None or weight_dtype == compute_dtype:

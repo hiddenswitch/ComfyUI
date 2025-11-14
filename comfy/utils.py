@@ -27,11 +27,12 @@ import os
 import random
 import struct
 import sys
+import threading
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from pickle import UnpicklingError
-from typing import Optional, Any
+from typing import Optional, Any, Literal, Generator
 
 import numpy as np
 import safetensors.torch
@@ -40,17 +41,26 @@ from PIL import Image
 from einops import rearrange
 from torch.nn.functional import interpolate
 from tqdm import tqdm
+from typing_extensions import TypedDict, NotRequired
 
+from comfy_execution.progress import get_progress_state
 from . import interruption, checkpoint_pickle
+from .cli_args import args
 from .component_model import files
 from .component_model.deprecation import _deprecate_method
 from .component_model.executor_types import ExecutorToClientProgress, ProgressMessage
-from .component_model.queue_types import BinaryEventTypes
+from .component_model.tqdm_watcher import TqdmWatcher
 from .execution_context import current_execution_context
+
+MMAP_TORCH_FILES = args.mmap_torch_files
+DISABLE_MMAP = args.disable_mmap
 
 logger = logging.getLogger(__name__)
 
 ALWAYS_SAFE_LOAD = False
+
+_lock = threading.RLock()
+
 if hasattr(torch.serialization, "add_safe_globals"):  # TODO: this was added in pytorch 2.4, the unsafe path should be removed once earlier versions are deprecated
     class ModelCheckpoint:
         pass
@@ -58,16 +68,28 @@ if hasattr(torch.serialization, "add_safe_globals"):  # TODO: this was added in 
 
     ModelCheckpoint.__module__ = "pytorch_lightning.callbacks.model_checkpoint"
 
-    from numpy.core.multiarray import scalar  # pylint: disable=no-name-in-module
+    # todo: upstream had a patch here for scalar, ours seems to work better, so i'm not sure
+    # def scalar(*args, **kwargs):
+    #     from numpy.core.multiarray import scalar as sc
+    #     return sc(*args, **kwargs)
+    # scalar.__module__ = "numpy.core.multiarray"
+
+    try:
+        from numpy.core.multiarray import scalar  # pylint: disable=no-name-in-module
+    except (ImportError, ModuleNotFoundError):
+        from numpy import generic as scalar
     from numpy import dtype
-    from numpy.dtypes import Float64DType  # pylint: disable=no-name-in-module
+    try:
+        from numpy.dtypes import Float64DType  # pylint: disable=no-name-in-module,import-error
+    except (ImportError, ModuleNotFoundError):
+        Float64DType = np.float64
     from _codecs import encode
 
     torch.serialization.add_safe_globals([ModelCheckpoint, scalar, dtype, Float64DType, encode])
     ALWAYS_SAFE_LOAD = True
-    logging.debug("Checkpoint files will always be loaded safely.")
+    logger.debug("Checkpoint files will always be loaded safely.")
 else:
-    logging.debug("Warning, you are using an old pytorch version and some ckpt/pt files might be loaded unsafely. Upgrading to 2.4 or above is recommended.")
+    logger.debug("Warning, you are using an old pytorch version and some ckpt/pt files might be loaded unsafely. Upgrading to 2.4 or above is recommended.")
 
 
 # deprecate PROGRESS_BAR_ENABLED
@@ -83,27 +105,34 @@ def _get_progress_bar_enabled():
 setattr(sys.modules[__name__], 'PROGRESS_BAR_ENABLED', property(_get_progress_bar_enabled))
 
 
-def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=False):
+class FileMetadata(TypedDict):
+    format: NotRequired[Literal["gguf"]]
+
+
+def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=False) -> dict[str, torch.Tensor] | tuple[dict[str, torch.Tensor], Optional[FileMetadata]]:
     if device is None:
         device = torch.device("cpu")
     if ckpt is None:
-        raise FileNotFoundError("the checkpoint was not found")
-    metadata = None
+        raise FileNotFoundError("The checkpoint was not found")
+    metadata: Optional[dict[str, str]] = None
+    sd: dict[str, torch.Tensor] = None
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
         try:
             with safetensors.safe_open(Path(ckpt).resolve(strict=True), framework="pt", device=device.type) as f:
                 sd = {}
                 for k in f.keys():
-                    sd[k] = f.get_tensor(k)
+                    tensor = f.get_tensor(k)
+                    if DISABLE_MMAP:  # TODO: Not sure if this is the best way to bypass the mmap issues
+                        tensor = tensor.to(device=device, copy=True)
+                    sd[k] = tensor
                 if return_metadata:
                     metadata = f.metadata()
         except Exception as e:
-            if len(e.args) > 0:
-                message = e.args[0]
-                if "HeaderTooLarge" in message:
-                    raise ValueError("{}\n\nFile path: {}\n\nThe safetensors file is corrupt or invalid. Make sure this is actually a safetensors file and not a ckpt or pt or other filetype.".format(message, ckpt))
-                if "MetadataIncompleteBuffer" in message:
-                    raise ValueError("{}\n\nFile path: {}\n\nThe safetensors file is corrupt/incomplete. Check the file size and make sure you have copied/downloaded it correctly.".format(message, ckpt))
+            message = str(e)
+            if "HeaderTooLarge" in message:
+                raise ValueError(f"{message} (File path: {ckpt} The safetensors file is corrupt or invalid. Make sure this is actually a safetensors file and not a ckpt or pt or other filetype.")
+            if "MetadataIncompleteBuffer" in message or "InvalidHeaderDeserialization" in message:
+                raise ValueError(f"{message} (File path: {ckpt} The safetensors file is corrupt/incomplete. Check the file size and make sure you have copied/downloaded it correctly.")
             raise e
     elif ckpt.lower().endswith("index.json"):
         # from accelerate
@@ -119,18 +148,23 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
         sd: dict[str, torch.Tensor] = {}
         for checkpoint_file in checkpoint_files:
             sd.update(safetensors.torch.load_file(str(checkpoint_file), device=device.type))
+    elif ckpt.lower().endswith(".gguf"):
+        # from gguf
+        # avoiding circular imports here by importing it lazily
+        from .gguf import gguf_sd_loader
+        sd = gguf_sd_loader(ckpt)
+        metadata = {"format": "gguf"}
     else:
         try:
+            torch_args = {}
+            if MMAP_TORCH_FILES:
+                torch_args["mmap"] = True
+
             if safe_load or ALWAYS_SAFE_LOAD:
-                if not 'weights_only' in torch.load.__code__.co_varnames:
-                    logger.warning("Warning torch.load doesn't support weights_only on this pytorch version, loading unsafely.")
-                    safe_load = False
-            if safe_load:
-                pl_sd = torch.load(ckpt, map_location=device, weights_only=True)
+                pl_sd = torch.load(ckpt, map_location=device, weights_only=True, **torch_args)
             else:
+                logger.warning("WARNING: loading {} unsafely, upgrade your pytorch to 2.4 or newer to load this file safely.".format(ckpt))
                 pl_sd = torch.load(ckpt, map_location=device, pickle_module=checkpoint_pickle)
-            if "global_step" in pl_sd:
-                logger.debug(f"Global Step: {pl_sd['global_step']}")
             if "state_dict" in pl_sd:
                 sd = pl_sd["state_dict"]
             else:
@@ -145,14 +179,14 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
             try:
                 # wrong extension is most likely, try to load as safetensors anyway
                 sd = safetensors.torch.load_file(Path(ckpt).resolve(strict=True), device=device.type)
-                return sd
             except Exception:
                 msg = f"The checkpoint at {ckpt} could not be loaded as a safetensor nor a torch checkpoint. The file at the path is corrupted or unexpected. Try deleting it and downloading it again"
                 if hasattr(exc_info, "add_note"):
                     exc_info.add_note(msg)
                 else:
                     logger.error(msg, exc_info=exc_info)
-            raise exc_info
+            if sd is None:
+                raise exc_info
     return (sd, metadata) if return_metadata else sd
 
 
@@ -775,6 +809,27 @@ def resize_to_batch_size(tensor, batch_size):
     return output
 
 
+def resize_list_to_batch_size(l, batch_size):
+    in_batch_size = len(l)
+    if in_batch_size == batch_size or in_batch_size == 0:
+        return l
+
+    if batch_size <= 1:
+        return l[:batch_size]
+
+    output = []
+    if batch_size < in_batch_size:
+        scale = (in_batch_size - 1) / (batch_size - 1)
+        for i in range(batch_size):
+            output.append(l[min(round(i * scale), in_batch_size - 1)])
+    else:
+        scale = in_batch_size / batch_size
+        for i in range(batch_size):
+            output.append(l[min(math.floor((i + 0.5) * scale), in_batch_size - 1)])
+
+    return output
+
+
 def convert_sd_to(state_dict, dtype):
     keys = list(state_dict.keys())
     for k in keys:
@@ -1079,20 +1134,22 @@ def tiled_scale(samples, function, tile_x=64, tile_y=64, overlap=8, upscale_amou
     return tiled_scale_multidim(samples, function, (tile_y, tile_x), overlap=overlap, upscale_amount=upscale_amount, out_channels=out_channels, output_device=output_device, pbar=pbar)
 
 
-def _progress_bar_update(value: float, total: float, preview_image_or_data: Optional[Any] = None, client_id: Optional[str] = None, server: Optional[ExecutorToClientProgress] = None):
-    server = server or current_execution_context().server
-    # todo: this should really be from the context. right now the server is behaving like a context
-    client_id = client_id or server.client_id
+def _progress_bar_update(value: float, total: float, preview_image_or_data: Optional[Any] = None, client_id: Optional[str] = None, server: Optional[ExecutorToClientProgress] = None, node_id: str = None, prompt_id: str = None):
+    context = current_execution_context()
+    server = server or context.server
+    executing_context = context
+    prompt_id = prompt_id or executing_context.task_id or server.last_prompt_id
+    node_id = node_id or executing_context.node_id or server.last_node_id
     interruption.throw_exception_if_processing_interrupted()
-    progress: ProgressMessage = {"value": value, "max": total, "prompt_id": server.last_prompt_id, "node": server.last_node_id}
+
+    progress: ProgressMessage = {"value": value, "max": total, "prompt_id": prompt_id, "node": node_id}
+    # todo: is this still necessary?
     if isinstance(preview_image_or_data, dict):
         progress["output"] = preview_image_or_data
 
+    # this is responsible for encoding the image
+    get_progress_state().update_progress(node_id, value, total, preview_image_or_data)
     server.send_sync("progress", progress, client_id)
-
-    # todo: investigate a better way to send the image data, since it needs the node ID
-    if preview_image_or_data is not None and not isinstance(preview_image_or_data, dict):
-        server.send_sync(BinaryEventTypes.UNENCODED_PREVIEW_IMAGE, preview_image_or_data, client_id)
 
 
 def set_progress_bar_enabled(enabled: bool):
@@ -1127,18 +1184,21 @@ class _DisabledProgressBar:
 
 
 class ProgressBar:
-    def __init__(self, total: float):
+    def __init__(self, total: float, node_id: Any = None):
         self.total: float = total
         self.current: float = 0.0
         self.server = current_execution_context().server
+        self.node_id = node_id
 
     def update_absolute(self, value, total=None, preview_image_or_output=None):
         if total is not None:
             self.total = total
-        if value > self.total:
+        if value is None:
+            return
+        if self.total is not None and value > self.total:
             value = self.total
         self.current = value
-        _progress_bar_update(self.current, self.total, preview_image_or_output, server=self.server)
+        _progress_bar_update(self.current, self.total, preview_image_or_output, server=self.server, node_id=self.node_id)
 
     def update(self, value):
         self.update_absolute(self.current + value)
@@ -1150,46 +1210,62 @@ def get_project_root() -> str:
 
 
 @contextmanager
-def comfy_tqdm():
+def comfy_tqdm() -> Generator[TqdmWatcher, None, None]:
     """
-    Monky patches child calls to tqdm and sends the progress to the UI
-    :return:
+    Monkey patches child calls to tqdm, sends progress to the UI,
+    and yields a watcher object for stall detection.
     """
+    with _lock:
+        if hasattr(tqdm, "__patched_by_comfyui__"):
+            yield getattr(tqdm, "__patched_by_comfyui__")
+            return
+
+        watcher = TqdmWatcher()
+        setattr(tqdm, "__patched_by_comfyui__", watcher)
+
     _original_init = tqdm.__init__
     _original_call = tqdm.__call__
     _original_update = tqdm.update
+
+    # Create the watcher instance that the patched methods will update
+    # and that will be yielded to the caller.
     context = contextvars.copy_context()
+
     try:
+
+        # These inner functions are closures; they capture the `watcher` variable
+        # from the enclosing scope.
         def __init(self, *args, **kwargs):
             _original_init(self, *args, **kwargs)
-            self._progress_bar = ProgressBar(self.total)
+            self._progress_bar = context.run(lambda: ProgressBar(self.total))
+            watcher.tick()  # Signal progress on initialization
 
         def __update(self, n=1):
             assert self._progress_bar is not None
             _original_update(self, n)
-            self._progress_bar.update(n)
+            context.run(lambda: self._progress_bar.update(n))
+            watcher.tick()  # Signal progress on update
 
         def __call(self, *args, **kwargs):
-            # When TQDM is called to wrap an iterable, ensure the instance is created
-            # with the captured context
-            instance = context.run(lambda: _original_call(self, *args, **kwargs))
+            instance = _original_call(self, *args, **kwargs)
             return instance
 
         tqdm.__init__ = __init
         tqdm.__call__ = __call
         tqdm.update = __update
-        # todo: modify the tqdm class here to correctly copy the context into the function that tqdm is passed
-        yield
+
+        yield watcher
+
     finally:
         # Restore original tqdm
         tqdm.__init__ = _original_init
         tqdm.__call__ = _original_call
         tqdm.update = _original_update
-        # todo: restore the context copying away
+        delattr(tqdm, "__patched_by_comfyui__")
 
 
 @contextmanager
-def comfy_progress(total: float) -> ProgressBar:
+def comfy_progress(total: float) -> Generator[ProgressBar, Any, None]:
     ctx = current_execution_context()
     if ctx.server.receive_all_progress_notifications:
         yield ProgressBar(total)

@@ -27,7 +27,7 @@ from torchvision import transforms
 from enum import Enum
 import logging
 
-from ..modules.diffusionmodules.mmdit import RMSNorm
+from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 
 from .blocks import (
     FinalLayer,
@@ -39,6 +39,7 @@ from .blocks import (
 
 from .position_embedding import LearnablePosEmbAxis, VideoRopePosition3DEmb
 
+logger = logging.getLogger(__name__)
 
 class DataType(Enum):
     IMAGE = "image"
@@ -89,44 +90,44 @@ class GeneralDIT(nn.Module):
     """
 
     def __init__(
-        self,
-        max_img_h: int,
-        max_img_w: int,
-        max_frames: int,
-        in_channels: int,
-        out_channels: int,
-        patch_spatial: tuple,
-        patch_temporal: int,
-        concat_padding_mask: bool = True,
-        # attention settings
-        block_config: str = "FA-CA-MLP",
-        model_channels: int = 768,
-        num_blocks: int = 10,
-        num_heads: int = 16,
-        mlp_ratio: float = 4.0,
-        block_x_format: str = "BTHWD",
-        # cross attention settings
-        crossattn_emb_channels: int = 1024,
-        use_cross_attn_mask: bool = False,
-        # positional embedding settings
-        pos_emb_cls: str = "sincos",
-        pos_emb_learnable: bool = False,
-        pos_emb_interpolation: str = "crop",
-        affline_emb_norm: bool = False,  # whether or not to normalize the affine embedding
-        use_adaln_lora: bool = False,
-        adaln_lora_dim: int = 256,
-        rope_h_extrapolation_ratio: float = 1.0,
-        rope_w_extrapolation_ratio: float = 1.0,
-        rope_t_extrapolation_ratio: float = 1.0,
-        extra_per_block_abs_pos_emb: bool = False,
-        extra_per_block_abs_pos_emb_type: str = "sincos",
-        extra_h_extrapolation_ratio: float = 1.0,
-        extra_w_extrapolation_ratio: float = 1.0,
-        extra_t_extrapolation_ratio: float = 1.0,
-        image_model=None,
-        device=None,
-        dtype=None,
-        operations=None,
+            self,
+            max_img_h: int,
+            max_img_w: int,
+            max_frames: int,
+            in_channels: int,
+            out_channels: int,
+            patch_spatial: tuple,
+            patch_temporal: int,
+            concat_padding_mask: bool = True,
+            # attention settings
+            block_config: str = "FA-CA-MLP",
+            model_channels: int = 768,
+            num_blocks: int = 10,
+            num_heads: int = 16,
+            mlp_ratio: float = 4.0,
+            block_x_format: str = "BTHWD",
+            # cross attention settings
+            crossattn_emb_channels: int = 1024,
+            use_cross_attn_mask: bool = False,
+            # positional embedding settings
+            pos_emb_cls: str = "sincos",
+            pos_emb_learnable: bool = False,
+            pos_emb_interpolation: str = "crop",
+            affline_emb_norm: bool = False,  # whether or not to normalize the affine embedding
+            use_adaln_lora: bool = False,
+            adaln_lora_dim: int = 256,
+            rope_h_extrapolation_ratio: float = 1.0,
+            rope_w_extrapolation_ratio: float = 1.0,
+            rope_t_extrapolation_ratio: float = 1.0,
+            extra_per_block_abs_pos_emb: bool = False,
+            extra_per_block_abs_pos_emb_type: str = "sincos",
+            extra_h_extrapolation_ratio: float = 1.0,
+            extra_w_extrapolation_ratio: float = 1.0,
+            extra_t_extrapolation_ratio: float = 1.0,
+            image_model=None,
+            device=None,
+            dtype=None,
+            operations=None,
     ) -> None:
         super().__init__()
         self.max_img_h = max_img_h
@@ -174,7 +175,7 @@ class GeneralDIT(nn.Module):
         self.adaln_lora_dim = adaln_lora_dim
         self.t_embedder = nn.ModuleList(
             [Timesteps(model_channels),
-             TimestepEmbedding(model_channels, model_channels, use_adaln_lora=use_adaln_lora, weight_args=weight_args, operations=operations),]
+             TimestepEmbedding(model_channels, model_channels, use_adaln_lora=use_adaln_lora, weight_args=weight_args, operations=operations), ]
         )
 
         self.blocks = nn.ModuleDict()
@@ -194,8 +195,8 @@ class GeneralDIT(nn.Module):
             )
 
         if self.affline_emb_norm:
-            logging.debug("Building affine embedding normalization layer")
-            self.affline_norm = RMSNorm(model_channels, elementwise_affine=True, eps=1e-6)
+            logger.debug("Building affine embedding normalization layer")
+            self.affline_norm = operations.RMSNorm(model_channels, elementwise_affine=True, eps=1e-6, device=device, dtype=dtype)
         else:
             self.affline_norm = nn.Identity()
 
@@ -216,7 +217,7 @@ class GeneralDIT(nn.Module):
         else:
             raise ValueError(f"Unknown pos_emb_cls {self.pos_emb_cls}")
 
-        logging.debug(f"Building positional embedding with {self.pos_emb_cls} class, impl {cls_type}")
+        logger.debug(f"Building positional embedding with {self.pos_emb_cls} class, impl {cls_type}")
         kwargs = dict(
             model_channels=self.model_channels,
             len_h=self.max_img_h // self.patch_spatial,
@@ -248,12 +249,12 @@ class GeneralDIT(nn.Module):
             )
 
     def prepare_embedded_sequence(
-        self,
-        x_B_C_T_H_W: torch.Tensor,
-        fps: Optional[torch.Tensor] = None,
-        padding_mask: Optional[torch.Tensor] = None,
-        latent_condition: Optional[torch.Tensor] = None,
-        latent_condition_sigma: Optional[torch.Tensor] = None,
+            self,
+            x_B_C_T_H_W: torch.Tensor,
+            fps: Optional[torch.Tensor] = None,
+            padding_mask: Optional[torch.Tensor] = None,
+            latent_condition: Optional[torch.Tensor] = None,
+            latent_condition_sigma: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Prepares an embedded sequence tensor by applying positional embeddings and handling padding masks.
@@ -308,13 +309,13 @@ class GeneralDIT(nn.Module):
         return x_B_T_H_W_D, None, extra_pos_emb
 
     def decoder_head(
-        self,
-        x_B_T_H_W_D: torch.Tensor,
-        emb_B_D: torch.Tensor,
-        crossattn_emb: torch.Tensor,
-        origin_shape: Tuple[int, int, int, int, int],  # [B, C, T, H, W]
-        crossattn_mask: Optional[torch.Tensor] = None,
-        adaln_lora_B_3D: Optional[torch.Tensor] = None,
+            self,
+            x_B_T_H_W_D: torch.Tensor,
+            emb_B_D: torch.Tensor,
+            crossattn_emb: torch.Tensor,
+            origin_shape: Tuple[int, int, int, int, int],  # [B, C, T, H, W]
+            crossattn_mask: Optional[torch.Tensor] = None,
+            adaln_lora_B_3D: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         del crossattn_emb, crossattn_mask
         B, C, T_before_patchify, H_before_patchify, W_before_patchify = origin_shape
@@ -340,19 +341,19 @@ class GeneralDIT(nn.Module):
         return x_B_D_T_H_W
 
     def forward_before_blocks(
-        self,
-        x: torch.Tensor,
-        timesteps: torch.Tensor,
-        crossattn_emb: torch.Tensor,
-        crossattn_mask: Optional[torch.Tensor] = None,
-        fps: Optional[torch.Tensor] = None,
-        image_size: Optional[torch.Tensor] = None,
-        padding_mask: Optional[torch.Tensor] = None,
-        scalar_feature: Optional[torch.Tensor] = None,
-        data_type: Optional[DataType] = DataType.VIDEO,
-        latent_condition: Optional[torch.Tensor] = None,
-        latent_condition_sigma: Optional[torch.Tensor] = None,
-        **kwargs,
+            self,
+            x: torch.Tensor,
+            timesteps: torch.Tensor,
+            crossattn_emb: torch.Tensor,
+            crossattn_mask: Optional[torch.Tensor] = None,
+            fps: Optional[torch.Tensor] = None,
+            image_size: Optional[torch.Tensor] = None,
+            padding_mask: Optional[torch.Tensor] = None,
+            scalar_feature: Optional[torch.Tensor] = None,
+            data_type: Optional[DataType] = DataType.VIDEO,
+            latent_condition: Optional[torch.Tensor] = None,
+            latent_condition_sigma: Optional[torch.Tensor] = None,
+            **kwargs,
     ) -> torch.Tensor:
         """
         Args:
@@ -421,22 +422,58 @@ class GeneralDIT(nn.Module):
         return output
 
     def forward(
-        self,
-        x: torch.Tensor,
-        timesteps: torch.Tensor,
-        context: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        # crossattn_emb: torch.Tensor,
-        # crossattn_mask: Optional[torch.Tensor] = None,
-        fps: Optional[torch.Tensor] = None,
-        image_size: Optional[torch.Tensor] = None,
-        padding_mask: Optional[torch.Tensor] = None,
-        scalar_feature: Optional[torch.Tensor] = None,
-        data_type: Optional[DataType] = DataType.VIDEO,
-        latent_condition: Optional[torch.Tensor] = None,
-        latent_condition_sigma: Optional[torch.Tensor] = None,
-        condition_video_augment_sigma: Optional[torch.Tensor] = None,
-        **kwargs,
+            self,
+            x: torch.Tensor,
+            timesteps: torch.Tensor,
+            context: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            # crossattn_emb: torch.Tensor,
+            # crossattn_mask: Optional[torch.Tensor] = None,
+            fps: Optional[torch.Tensor] = None,
+            image_size: Optional[torch.Tensor] = None,
+            padding_mask: Optional[torch.Tensor] = None,
+            scalar_feature: Optional[torch.Tensor] = None,
+            data_type: Optional[DataType] = DataType.VIDEO,
+            latent_condition: Optional[torch.Tensor] = None,
+            latent_condition_sigma: Optional[torch.Tensor] = None,
+            condition_video_augment_sigma: Optional[torch.Tensor] = None,
+            **kwargs,
+    ):
+        return WrapperExecutor.new_class_executor(
+            self._forward,
+            self,
+            get_all_wrappers(WrappersMP.DIFFUSION_MODEL, kwargs.get("transformer_options", {}))
+        ).execute(x,
+                  timesteps,
+                  context,
+                  attention_mask,
+                  fps,
+                  image_size,
+                  padding_mask,
+                  scalar_feature,
+                  data_type,
+                  latent_condition,
+                  latent_condition_sigma,
+                  condition_video_augment_sigma,
+                  **kwargs)
+
+    def _forward(
+            self,
+            x: torch.Tensor,
+            timesteps: torch.Tensor,
+            context: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            # crossattn_emb: torch.Tensor,
+            # crossattn_mask: Optional[torch.Tensor] = None,
+            fps: Optional[torch.Tensor] = None,
+            image_size: Optional[torch.Tensor] = None,
+            padding_mask: Optional[torch.Tensor] = None,
+            scalar_feature: Optional[torch.Tensor] = None,
+            data_type: Optional[DataType] = DataType.VIDEO,
+            latent_condition: Optional[torch.Tensor] = None,
+            latent_condition_sigma: Optional[torch.Tensor] = None,
+            condition_video_augment_sigma: Optional[torch.Tensor] = None,
+            **kwargs,
     ):
         """
         Args:
@@ -481,12 +518,13 @@ class GeneralDIT(nn.Module):
 
         if extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D is not None:
             assert (
-                x.shape == extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D.shape
+                    x.shape == extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D.shape
             ), f"{x.shape} != {extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D.shape} {original_shape}"
 
+        transformer_options = kwargs.get("transformer_options", {})
         for _, block in self.blocks.items():
             assert (
-                self.blocks["block0"].x_format == block.x_format
+                    self.blocks["block0"].x_format == block.x_format
             ), f"First block has x_format {self.blocks[0].x_format}, got {block.x_format}"
 
             if extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D is not None:
@@ -498,6 +536,7 @@ class GeneralDIT(nn.Module):
                 crossattn_mask,
                 rope_emb_L_1_1_D=rope_emb_L_1_1_D,
                 adaln_lora_B_3D=adaln_lora_B_3D,
+                transformer_options=transformer_options,
             )
 
         x_B_T_H_W_D = rearrange(x, "T H W B D -> B T H W D")

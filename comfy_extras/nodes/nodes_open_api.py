@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import sys
 import uuid
 from datetime import datetime
 from fractions import Fraction
-from typing import Sequence, Optional, TypedDict, Dict, List, Literal, Callable, Tuple
+from typing import Sequence, Optional, TypedDict, List, Literal, Tuple, Any, Dict
 
 import PIL
 import aiohttp
@@ -20,7 +21,8 @@ import cv2
 import fsspec
 import numpy as np
 import torch
-from PIL import Image, ImageSequence, ImageOps
+from PIL import Image, ImageSequence, ImageOps, ExifTags
+from PIL.Image import Exif
 from PIL.ImageFile import ImageFile
 from PIL.PngImagePlugin import PngInfo
 from fsspec.core import OpenFile
@@ -32,7 +34,8 @@ from torch import Tensor
 
 from comfy.cmd import folder_paths
 from comfy.comfy_types import IO
-from comfy.component_model.tensor_types import RGBAImageBatch, RGBImageBatch
+from comfy.component_model.images_types import ImageMaskTuple
+from comfy.component_model.tensor_types import RGBAImageBatch, RGBImageBatch, MaskBatch, ImageBatch
 from comfy.digest import digest
 from comfy.node_helpers import export_custom_nodes
 from comfy.nodes.package_typing import CustomNode, InputTypes, FunctionReturnsUIVariables, SaveNodeResult, \
@@ -81,13 +84,16 @@ class FsSpecComfyMetadata(TypedDict, total=True):
     batch_number_str: str
 
 
+# for keys that are missing
+_PNGINFO_TO_EXIF_KEY_MAP = {
+    "CreationDate": "DateTimeOriginal",
+    "Title": "DocumentName",
+    "Description": "ImageDescription",
+}
+
+
 class SaveNodeResultWithName(SaveNodeResult):
     name: str
-
-
-from PIL import ExifTags
-from PIL.Image import Exif
-from typing import Any, Dict
 
 
 def create_exif_from_pnginfo(metadata: Dict[str, Any]) -> Exif:
@@ -124,11 +130,13 @@ def create_exif_from_pnginfo(metadata: Dict[str, Any]) -> Exif:
         if key.startswith('GPS'):
             continue
 
+        exif_key = _PNGINFO_TO_EXIF_KEY_MAP.get(key, key)
+
         try:
-            tag = getattr(ExifTags.Base, key)
+            tag = getattr(ExifTags.Base, exif_key)
             exif[tag] = value
-        except AttributeError:
-            pass
+        except (AttributeError, ValueError):
+            continue
 
     return exif
 
@@ -660,13 +668,16 @@ class SaveImagesResponse(CustomNode):
                     for x in extra_pnginfo:
                         exif_inst.exif[x] = json.dumps(extra_pnginfo[x])
 
-                png_metadata = PngInfo()
-                for tag, value in exif_inst.exif.items():
-                    png_metadata.add_text(tag, value)
-
-                additional_args = {"pnginfo": png_metadata, "compress_level": 9}
                 save_method = 'pil'
                 save_format = pil_save_format
+                if pil_save_format == 'png':
+                    png_metadata = PngInfo()
+                    for tag, value in exif_inst.exif.items():
+                        png_metadata.add_text(tag, value)
+                    additional_args = {"pnginfo": png_metadata, "compress_level": 9}
+                else:
+                    exif_obj = create_exif_from_pnginfo(exif_inst.exif)
+                    additional_args = {"exif": exif_obj.tobytes()}
 
             elif bits >= 16:
                 if 'exr' in pil_save_format:
@@ -674,7 +685,7 @@ class SaveImagesResponse(CustomNode):
                     mut_srgb_to_linear(image_as_numpy_array[:, :, :3])
                     image_scaled = image_as_numpy_array.astype(np.float32)
                     if bits == 16:
-                        cv_save_options = [cv2.IMWRITE_EXR_TYPE, cv2.IMWRITE_EXR_TYPE_HALF]  # pylint: disable=no-member
+                        cv_save_options = [cv2.IMWRITE_EXR_TYPE, cv2.IMWRITE_EXR_TYPE_HALF]
                 else:
                     image_scaled = np.clip(image_as_numpy_array * 65535, 0, 65535).astype(np.uint16)
 
@@ -725,11 +736,25 @@ class SaveImagesResponse(CustomNode):
                 if save_method == 'pil':
                     with fsspec.open(uri, mode="wb", **fsspec_kwargs) as f:
                         image_as_pil.save(f, format=save_format, **additional_args)
-                else:
-                    _, img_encode = cv2.imencode(f'.{save_format}', image_scaled, cv_save_options)  # pylint: disable=no-member
+                elif save_method == 'opencv':
+                    _, img_encode = cv2.imencode(f'.{save_format}', image_scaled, cv_save_options)
+                    img_bytes = img_encode.tobytes()
+
+                    if exif_inst.exif and save_format == 'png':
+                        import zlib
+                        import struct
+                        exif_obj = create_exif_from_pnginfo(exif_inst.exif)
+                        # The eXIf chunk should contain the raw TIFF data, but Pillow's `tobytes()`
+                        # includes the "Exif\x00\x00" prefix for JPEG APP1 markers. We must strip it.
+                        exif_bytes = exif_obj.tobytes()[6:]
+                        # PNG signature (8 bytes) + IHDR chunk (25 bytes) = 33 bytes.
+                        insertion_point = 33
+                        # Create eXIf chunk
+                        exif_chunk = struct.pack('>I', len(exif_bytes)) + b'eXIf' + exif_bytes + struct.pack('>I', zlib.crc32(b'eXIf' + exif_bytes))
+                        img_bytes = img_bytes[:insertion_point] + exif_chunk + img_bytes[insertion_point:]
 
                     with fsspec.open(uri, mode="wb", **fsspec_kwargs) as f:
-                        f.write(img_encode.tobytes())
+                        f.write(img_bytes)
 
                 if metadata_uri is not None:
                     # all values are stringified for the metadata
@@ -742,7 +767,7 @@ class SaveImagesResponse(CustomNode):
 
             except Exception as e:
                 logging.error(f"Error while trying to save file with fsspec_url {uri}", exc_info=e)
-                abs_path = os.path.abspath(local_path)
+                abs_path = "" if local_path is None else os.path.abspath(local_path)
 
             if is_null_uri(local_path):
                 filename_for_ui = ""
@@ -755,7 +780,7 @@ class SaveImagesResponse(CustomNode):
                 if save_method == 'pil':
                     image_as_pil.save(local_path, format=save_format, **additional_args)
                 else:
-                    cv2.imwrite(local_path, image_scaled)  # pylint: disable=no-member
+                    cv2.imwrite(local_path, image_scaled)
 
             img_item: SaveNodeResultWithName = {
                 "abs_path": str(abs_path),
@@ -772,7 +797,6 @@ class SaveImagesResponse(CustomNode):
 
         return ui_images_result
 
-
     def subfolder_of(self, local_uri, output_directory):
         return os.path.dirname(os.path.relpath(os.path.abspath(local_uri), os.path.abspath(output_directory)))
 
@@ -786,15 +810,20 @@ class ImageRequestParameter(CustomNode):
             },
             "optional": {
                 **_open_api_common_schema,
+                "default_if_empty": ("IMAGE",),
+                "alpha_is_transparency": ("BOOLEAN", {"default": False}),
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "execute"
     CATEGORY = "api/openapi"
 
-    def execute(self, value: str = "", *args, **kwargs) -> ValidatedNodeResult:
+    def execute(self, value: str = "", default_if_empty=None, alpha_is_transparency=False, *args, **kwargs) -> ImageMaskTuple:
+        if value.strip() == "":
+            return (default_if_empty,)
         output_images = []
+        output_masks = []
         f: OpenFile
         fsspec_kwargs = {}
         if value.startswith('http'):
@@ -806,31 +835,41 @@ class ImageRequestParameter(CustomNode):
             })
         # todo: additional security is needed here to prevent users from accessing local paths
         # however this generally needs to be done with user accounts on all OSes
-        with fsspec.open(value, mode="rb", **fsspec_kwargs) as f:
-            # from LoadImage
-            img = Image.open(f)
-            for i in ImageSequence.Iterator(img):
-                prev_value = None
-                try:
-                    i = ImageOps.exif_transpose(i)
-                except OSError:
-                    prev_value = ImageFile.LOAD_TRUNCATED_IMAGES
-                    ImageFile.LOAD_TRUNCATED_IMAGES = True
-                    i = ImageOps.exif_transpose(i)
-                finally:
-                    if prev_value is not None:
-                        ImageFile.LOAD_TRUNCATED_IMAGES = prev_value
-                    if i.mode == 'I':
-                        i = i.point(lambda i: i * (1 / 255))
-                    image = i.convert("RGB")
-                    image = np.array(image).astype(np.float32) / 255.0
-                    image = torch.from_numpy(image)[None,]
-                    output_images.append(image)
-        if len(output_images) > 1:
-            output_image = torch.cat(output_images, dim=0)
-        else:
-            output_image = output_images[0]
-        return (output_image,)
+        with fsspec.open_files(value, mode="rb", **fsspec_kwargs) as files:
+            for f in files:
+                # from LoadImage
+                img = Image.open(f)
+                for i in ImageSequence.Iterator(img):
+                    prev_value = None
+                    try:
+                        i = ImageOps.exif_transpose(i)
+                    except OSError:
+                        prev_value = ImageFile.LOAD_TRUNCATED_IMAGES
+                        ImageFile.LOAD_TRUNCATED_IMAGES = True
+                        i = ImageOps.exif_transpose(i)
+                    finally:
+                        if prev_value is not None:
+                            ImageFile.LOAD_TRUNCATED_IMAGES = prev_value
+                        if i.mode == 'I':
+                            i = i.point(lambda i: i * (1 / 255))
+                        image = i.convert("RGBA" if alpha_is_transparency else "RGB")
+                        image = np.array(image).astype(np.float32) / 255.0
+                        image = torch.from_numpy(image)[None,]
+                        if 'A' in i.getbands():
+                            mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                            mask = 1. - torch.from_numpy(mask)
+                        elif i.mode == 'P' and 'transparency' in i.info:
+                            mask = np.array(i.convert('RGBA').getchannel('A')).astype(np.float32) / 255.0
+                            mask = 1. - torch.from_numpy(mask)
+                        else:
+                            mask = torch.zeros((image.shape[1], image.shape[2]), dtype=torch.float32, device="cpu")
+                        output_images.append(image)
+                        output_masks.append(mask.unsqueeze(0))
+
+        output_images_batched: ImageBatch = torch.cat(output_images, dim=0)
+        output_masks_batched: MaskBatch = torch.cat(output_masks, dim=0)
+
+        return ImageMaskTuple(output_images_batched, output_masks_batched)
 
 
 export_custom_nodes()

@@ -1,19 +1,25 @@
 import hashlib
-
 from PIL import ImageFile, UnidentifiedImageError
 
-from .cli_args import args
+from comfy_api.latest import io
 from .component_model.files import get_package_as_path
+from .execution_context import current_execution_context
 
 
-def conditioning_set_values(conditioning, values: dict = None):
+def conditioning_set_values(conditioning, values: dict = None, append=False) -> io.Conditioning.CondList:
     if values is None:
         values = {}
     c = []
     for t in conditioning:
         n = [t[0], t[1].copy()]
         for k in values:
-            n[1][k] = values[k]
+            val = values[k]
+            if append:
+                old_val = n[1].get(k, None)
+                if old_val is not None:
+                    val = old_val + val
+
+            n[1][k] = val
         c.append(n)
 
     return c
@@ -40,6 +46,7 @@ def hasher():
         "sha256": hashlib.sha256,
         "sha512": hashlib.sha512
     }
+    args = current_execution_context().configuration
     return hashfuncs[args.default_hashing_function]
 
 

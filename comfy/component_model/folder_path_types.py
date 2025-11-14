@@ -13,7 +13,7 @@ from typing import Any, NamedTuple, Optional, Iterable
 
 from .platform_path import construct_path
 
-supported_pt_extensions = frozenset(['.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft' ".index.json"])
+supported_pt_extensions = frozenset(['.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft' ".index.json", ".gguf"])
 extension_mimetypes_cache = {
     "webp": "image",
     "fbx": "model",
@@ -102,7 +102,7 @@ class PathsList:
         paths = [x for x in self]
         return paths[item]
 
-    def append(self, path_str: str):
+    def append(self, path_str: str | Path):
         p: FolderNames = self.parent()
         p.add_paths(self.folder_name, [path_str])
 
@@ -146,6 +146,14 @@ class SupportedExtensions:
     def clear(self):
         p: FolderNames = self.parent()
         p.remove_all_supported_extensions(self.folder_name)
+
+    def __len__(self):
+        p: FolderNames = self.parent()
+        return len(list(p.supported_extensions(self.folder_name)))
+
+    def __or__(self, other):
+        self._append_any(other)
+        return self
 
     __ior__ = _append_any
     add = _append_any

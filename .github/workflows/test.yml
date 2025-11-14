@@ -9,43 +9,128 @@ name: Backend Tests
 on: [ push ]
 
 jobs:
-  build_and_execute_linux:
+  build_and_execute_nvidia:
     environment: "Testing"
-    name: Installation, Unit and Workflow Tests for Linux
+    name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
     strategy:
       fail-fast: false
       matrix:
         runner:
-          - labels: [self-hosted, Linux, X64, cuda-3060-12gb]
-            container: "nvcr.io/nvidia/pytorch:24.12-py3"
+          - labels: [self-hosted, Linux, X64, cuda-3090-24gb]
+            friendly_name: "Python 3.12 CUDA 12.9.1 Torch-TensorRT 2.8.0a0"
+            container: "nvcr.io/nvidia/pytorch:25.06-py3"
+          - labels: [self-hosted, Linux, X64, cuda-3090-24gb]
+            friendly_name: "(LTS) Python 3.12 CUDA 12.8.1.012 Torch-TensorRT 2.7.0a0"
+            container: "nvcr.io/nvidia/pytorch:25.03-py3"
+          - labels: [self-hosted, Linux, X64, cuda-3090-24gb]
+            friendly_name: "Python 3.10 CUDA 12.6.2 Torch-TensorRT 2.5.0a0"
+            container: "nvcr.io/nvidia/pytorch:24.10-py3"
+          - labels: [self-hosted, Linux, X64, cuda-3090-24gb]
+            friendly_name: "Python 3.10 CUDA 12.3.2 Torch-TensorRT 2.2.0a0"
+            container: "nvcr.io/nvidia/pytorch:23.12-py3"
     steps:
-      - run: |
-          apt update || true
-          apt install -y curl nodejs python3 python3-pip git build-essential ffmpeg libsm6 libxext6 || true
-          pip uninstall -y $(pip list --format=freeze | grep opencv) || true
-          rm -rf /usr/local/lib/python3.10/dist-packages/cv2/ || rm -rf /usr/local/lib/python3.11/dist-packages/cv2/ || rm -rf /usr/local/lib/python3.12/dist-packages/cv2/ || true
-          ln -s `which python3` /usr/bin/python || true
-          ln -s `which pip3` /usr/bin/pip || true
-        name: Prepare Python
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
       - uses: actions/checkout@v4
         name: Checkout git repo
+      - name: Update numpy
+        run: |
+          # jax requires >=1.26 and sometimes greater
+          # todo: we probably want to remove the dependency on jax since it's basically not compatible with old python
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          
+          ( [[ "$(uv pip freeze | awk -F'[=.]' '/^numpy==/ {print $3}')" -lt 2 ]] && echo "numpy<2" || echo "numpy>=2" ) >> numpy_override.txt
+          uv pip install -U $(cat numpy_override.txt)
+      - name: Update OpenCV
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          export UV_OVERRIDE=numpy_override.txt
+          
+          uv pip uninstall opencv
+          rm -rf /usr/local/lib/python3.10/dist-packages/cv2/ || rm -rf /usr/local/lib/python3.12/dist-packages/cv2/ || true
+          uv pip install -U --no-deps opencv-python-headless
       - name: Install ComfyUI
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
-          UV_TORCH_BACKEND=auto uv sync --inexact
-      - name: Run tests
-        run: |
-          export HSA_OVERRIDE_GFX_VERSION=11.0.0
-          export HIP_VISIBLE_DEVICES=0
-          nvidia-smi || rocminfo || true
-          uv run pytest -v tests/unit
+          export UV_OVERRIDE=numpy_override.txt
+          uv pip install --torch-backend=auto ".[dev]" --inexact
       - name: Lint for errors
         run: |
-          uv run pylint --rcfile=.pylintrc comfy/
-          uv run pylint --rcfile=.pylintrc comfy_extras/
+          pylint --rcfile=.pylintrc comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+      - name: Run unit tests
+        run: |
+          pytest -v tests/unit
+  build_and_execute_amd:
+    environment: "Testing"
+    name: ${{ matrix.runner.friendly_name }}
+    runs-on: ${{ matrix.runner.labels }}
+    container: ${{ matrix.runner.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - labels: [self-hosted, Linux, X64, rocm-7600-8gb]
+            friendly_name: "Python 3.12 ROCm 7.0 Torch 2.7.1"
+            container: "rocm/pytorch:rocm7.0_ubuntu24.04_py3.12_pytorch_release_2.7.1"
+    steps:
+      - run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+        name: Install uv
+      - name: Align ROCm to Image
+        run: |
+          # our testing infrastructure uses RX 7XXX GPUs, this includes express support for gfx1102, gfx1101 which will resolve crashes
+          export UV_PRERELEASE=allow
+          uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ "rocm[libraries]<7.9" "torch==2.7.1+rocm7.0.0rc20250922" "torchaudio==2.7.1a0+rocm7.0.0rc20250922" "torchvision==0.22.1+rocm7.0.0rc20250922" "pytorch_triton_rocm" --pre
+      - uses: actions/checkout@v4
+        name: Checkout git repo
+        with:
+          path: src
+      - run: |
+          apt install libsndfile1 -y --no-install-recommends
+        name: sndfile Dependency
+      - name: Write Overrides
+        run: |
+          echo ${GITHUB_WORKSPACE}
+          touch overrides.txt
+          uv pip freeze | grep -E 'torch|rocm|numpy|opencv' >> overrides.txt
+          echo "sentry-sdk; python_version < '0'" >> overrides.txt
+      - name: Install ComfyUI
+        run: |
+          export UV_PRERELEASE=allow
+          export UV_OVERRIDE=overrides.txt
+          uv pip install "comfyui[rocm,dev]@${GITHUB_WORKSPACE}/src"
+      - name: Lint for errors
+        run: |
+          cd ${GITHUB_WORKSPACE}/src
+          pylint --rcfile=.pylintrc comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+      - name: Run unit tests
+        run: |
+          # only use dGPU
+          cd ${GITHUB_WORKSPACE}/src
+          export HIP_VISIBLE_DEVICES=1
+          pytest -v tests/unit
+  build_and_execute_macos:
+    environment: "Testing"
+    name: Installation Test for macOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout git repo
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system dependencies
+        run: brew install ffmpeg
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install ComfyUI
+        run: |
+          uv venv --python 3.12
+          uv pip install --torch-backend=auto '.[mps,dev]' --inexact

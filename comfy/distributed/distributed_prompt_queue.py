@@ -13,12 +13,12 @@ from aio_pika import connect_robust
 from aio_pika.abc import AbstractConnection, AbstractChannel
 from aio_pika.patterns import JsonRPC
 
+from ..cmd.main_pre import tracer
 from .distributed_progress import ProgressHandlers
 from .distributed_types import RpcRequest, RpcReply
 from .history import History
 from .server_stub import ServerStub
 from ..auth.permissions import jwt_decode
-from ..cmd.main_pre import tracer
 from ..cmd.server import PromptServer
 from ..component_model.abstract_prompt_queue import AsyncAbstractPromptQueue, AbstractPromptQueue
 from ..component_model.executor_types import ExecutorToClientProgress, SendSyncEvent, SendSyncData, HistoryResultDict
@@ -110,7 +110,7 @@ class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
     async def _callee_do_work_item(self, request: dict) -> dict:
         assert self._is_callee
         request_obj = RpcRequest.from_dict(request)
-        item = request_obj.as_queue_tuple().queue_tuple
+        item = (await request_obj.as_queue_tuple()).queue_tuple
         item_with_completer = QueueItem(item, self._loop.create_future())
         self._callee_local_in_progress[item_with_completer.prompt_id] = item_with_completer
         # todo: check if we have the local model content needed to execute this request and if not, reject it
@@ -162,7 +162,7 @@ class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
 
         return item, item[1]
 
-    def task_done(self, item_id: int, outputs: dict, status: Optional[ExecutionStatus]):
+    def task_done(self, item_id: int, outputs: dict, status: Optional[ExecutionStatus], error_details: Optional['ExecutionErrorMessage'] = None):
         # callee: executed on the worker thread
         if "outputs" in outputs:
             outputs: HistoryResultDict
@@ -173,7 +173,7 @@ class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
         assert pending.completed is not None
         assert not pending.completed.done()
         # finish the task. status will transmit the errors in comfy's domain-specific way
-        pending.completed.set_result(TaskInvocation(item_id=item_id, outputs=outputs, status=status))
+        pending.completed.set_result(TaskInvocation(item_id=item_id, outputs=outputs, status=status, error_details=error_details))
         # todo: the caller is responsible for sending a websocket message right now that the UI expects for updates
 
     def get_current_queue(self) -> Tuple[List[QueueTuple], List[QueueTuple]]:

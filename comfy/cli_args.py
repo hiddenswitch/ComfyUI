@@ -9,16 +9,22 @@ from typing import Optional
 import configargparse as argparse
 
 from . import __version__
-from . import options
 from .cli_args_types import LatentPreviewMethod, Configuration, ConfigurationExtender, EnumAction, \
-    EnhancedConfigArgParser, PerformanceFeature, is_valid_directory
+    EnhancedConfigArgParser, PerformanceFeature, is_valid_directory, db_config, FlattenAndAppendAction
+from .component_model.module_property import create_module_properties
 
 # todo: move this
 DEFAULT_VERSION_STRING = "comfyanonymous/ComfyUI@latest"
 
+logger = logging.getLogger(__name__)
+
+args: Configuration
+
+_module_properties = create_module_properties()
+
 
 def _create_parser() -> EnhancedConfigArgParser:
-    parser = EnhancedConfigArgParser(default_config_files=['config.yaml', 'config.json'],
+    parser = EnhancedConfigArgParser(default_config_files=['config.yaml', 'config.json', 'config.cfg', 'config.ini'],
                                      auto_env_var_prefix='COMFYUI_',
                                      args_for_setting_config_path=["-c", "--config"],
                                      add_env_var_help=True, add_config_file_help=True, add_help=True,
@@ -26,7 +32,7 @@ def _create_parser() -> EnhancedConfigArgParser:
 
     parser.add_argument('-w', "--cwd", type=str, default=None,
                         help="Specify the working directory. If not set, this is the current working directory. models/, input/, output/ and other directories will be located here by default.")
-    parser.add_argument("--base-paths", type=str, nargs='+', default=[], help="Additional base paths for custom nodes, models and inputs.")
+    parser.add_argument("--base-paths", type=str, nargs='+', default=[], action=FlattenAndAppendAction, help="Additional base paths for custom nodes, models and inputs.")
     parser.add_argument('-H', "--listen", type=str, default="127.0.0.1", metavar="IP", nargs="?", const="0.0.0.0,::",
                         help="Specify the IP address to listen on (default: 127.0.0.1). You can give a list of ip addresses by separating them with a comma like: 127.2.2.2,127.3.3.3 If --listen is provided without an argument, it defaults to 0.0.0.0,:: (listens on all ipv4 and ipv6)")
     parser.add_argument("--port", type=int, default=8188, help="Set the listen port.")
@@ -34,8 +40,8 @@ def _create_parser() -> EnhancedConfigArgParser:
                         help="Enable CORS (Cross-Origin Resource Sharing) with optional origin or allow all with default '*'.")
     parser.add_argument("--max-upload-size", type=float, default=100, help="Set the maximum upload size in MB.")
     parser.add_argument("--base-directory", type=str, default=None, help="Set the ComfyUI base directory for models, custom_nodes, input, output, temp, and user directories.")
-    parser.add_argument("--extra-model-paths-config", type=str, default=None, metavar="PATH", nargs='+',
-                        action='append', help="Load one or more extra_model_paths.yaml files.")
+    parser.add_argument("--extra-model-paths-config", type=str, default=[], metavar="PATH", nargs='+',
+                        action=FlattenAndAppendAction, help="Load one or more extra_model_paths.yaml files. Can be specified multiple times or as a comma-separated list.")
     parser.add_argument("--output-directory", type=str, default=None, help="Set the ComfyUI output directory. Overrides --base-directory.")
     parser.add_argument("--temp-directory", type=str, default=None,
                         help="Set the ComfyUI temp directory (default is in the ComfyUI directory). Overrides --base-directory.")
@@ -44,7 +50,8 @@ def _create_parser() -> EnhancedConfigArgParser:
                         help="Automatically launch ComfyUI in the default browser.")
     parser.add_argument("--disable-auto-launch", action="store_true", help="Disable auto launching the browser.")
     parser.add_argument("--cuda-device", type=int, default=None, metavar="DEVICE_ID",
-                        help="Set the id of the cuda device this instance will use.")
+                        help="Set the id of the cuda device this instance will use. All other devices will not be visible.")
+    parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device, all other devices will stay visible.")
     cm_group = parser.add_mutually_exclusive_group()
     cm_group.add_argument("--cuda-malloc", action="store_true",
                           help="Enable cudaMallocAsync (enabled by default for torch 2.0 and up).")
@@ -64,6 +71,7 @@ def _create_parser() -> EnhancedConfigArgParser:
     fpunet_group.add_argument("--fp16-unet", action="store_true", help="Run the diffusion model in fp16")
     fpunet_group.add_argument("--fp8_e4m3fn-unet", action="store_true", help="Store unet weights in fp8_e4m3fn.")
     fpunet_group.add_argument("--fp8_e5m2-unet", action="store_true", help="Store unet weights in fp8_e5m2.")
+    fpunet_group.add_argument("--fp8_e8m0fnu-unet", action="store_true", help="Store unet weights in fp8_e8m0fnu.")
 
     fpvae_group = parser.add_mutually_exclusive_group()
     fpvae_group.add_argument("--fp16-vae", action="store_true", help="Run the VAE in fp16, might cause black images.")
@@ -87,6 +95,7 @@ def _create_parser() -> EnhancedConfigArgParser:
     parser.add_argument("--oneapi-device-selector", type=str, default=None, metavar="SELECTOR_STRING", help="Sets the oneAPI device(s) this instance will use.")
     parser.add_argument("--disable-ipex-optimize", action="store_true",
                         help="Disables ipex.optimize default when loading models with Intel's Extension for Pytorch.")
+    parser.add_argument("--supports-fp8-compute", action="store_true", help="ComfyUI will act like if the device supports fp8 compute.")
 
     parser.add_argument("--preview-method", type=LatentPreviewMethod, default=LatentPreviewMethod.Auto,
                         help="Default preview method for sampler nodes.", action=EnumAction)
@@ -123,13 +132,18 @@ def _create_parser() -> EnhancedConfigArgParser:
     vram_group.add_argument("--cpu", action="store_true", help="To use the CPU for everything (slow).")
 
     parser.add_argument("--reserve-vram", type=float, default=None, help="Set the amount of vram in GB you want to reserve for use by your OS/other software. By default some amount is reserved depending on your OS.")
+    parser.add_argument("--async-offload", action="store_true", help="Use async weight offloading.")
+    parser.add_argument("--force-non-blocking", action="store_true", help="Force ComfyUI to use non-blocking operations for all applicable tensors. This may improve performance on some non-Nvidia systems but can cause issues with some workflows.")
     parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Allows you to choose the hash function to use for duplicate filename / contents comparison. Default is sha256.")
     parser.add_argument("--disable-smart-memory", action="store_true",
-                        help="Force ComfyUI to agressively offload to regular ram instead of keeping models in vram when it can.")
+                        help="Force ComfyUI to aggressively offload to regular ram instead of keeping models in VRAM when it can.")
     parser.add_argument("--deterministic", action="store_true",
                         help="Make pytorch use slower deterministic algorithms when it can. Note that this might not make images deterministic in all cases.")
 
-    parser.add_argument("--fast", nargs="*", type=PerformanceFeature, help="Enable some untested and potentially quality deteriorating optimizations. Pass a list specific optimizations if you only want to enable specific ones. Current valid optimizations: fp16_accumulation fp8_matrix_mult cublas_ops", default=set())
+    parser.add_argument("--fast", nargs="*", type=PerformanceFeature, help=f"Enable some untested and potentially quality deteriorating optimizations. Pass a list specific optimizations if you only want to enable specific ones. Current valid optimizations: {' '.join([f.value for f in PerformanceFeature])}", default=set())
+
+    parser.add_argument("--mmap-torch-files", action="store_true", help="Use mmap when loading ckpt/pt files.")
+    parser.add_argument("--disable-mmap", action="store_true", help="Don't use mmap when loading safetensors.")
 
     parser.add_argument("--dont-print-server", action="store_true", help="Don't print server output.")
     parser.add_argument("--quick-test-for-ci", action="store_true", help="Quick test for CI. Raises an error if nodes cannot be imported,")
@@ -139,6 +153,10 @@ def _create_parser() -> EnhancedConfigArgParser:
 
     parser.add_argument("--disable-metadata", action="store_true", help="Disable saving prompt metadata in files.")
     parser.add_argument("--disable-all-custom-nodes", action="store_true", help="Disable loading all custom nodes.")
+    parser.add_argument("--whitelist-custom-nodes", type=str, action=FlattenAndAppendAction, nargs='+', default=[], help="Specify custom node folders to load even when --disable-all-custom-nodes is enabled.")
+    parser.add_argument("--blacklist-custom-nodes", type=str, action=FlattenAndAppendAction, nargs='+', default=[], help="Specify custom node folders to never load. Accepts shell-style globs.")
+    parser.add_argument("--disable-api-nodes", action="store_true", help="Disable loading all api nodes.")
+    parser.add_argument("--enable-eval", action="store_true", help="Enable nodes that can evaluate Python code in workflows.")
 
     parser.add_argument("--multi-user", action="store_true", help="Enables per-user storage.")
     parser.add_argument("--create-directories", action="store_true",
@@ -195,7 +213,8 @@ def _create_parser() -> EnhancedConfigArgParser:
 
     parser.add_argument(
         '--panic-when',
-        action='append',
+        action=FlattenAndAppendAction,
+        nargs='+',
         help="""
         List of fully qualified exception class names to panic (sys.exit(1)) when a workflow raises it.
         Example: --panic-when=torch.cuda.OutOfMemoryError. Can be specified multiple times or as a 
@@ -248,7 +267,22 @@ def _create_parser() -> EnhancedConfigArgParser:
 
     parser.add_argument("--enable-compress-response-body", action="store_true", help="Enable compressing response body.")
 
-    parser.add_argument("--workflows", type=str, nargs='+', default=[], help="Execute the API workflow(s) specified in the provided files. For each workflow, its outputs will be printed to a line to standard out. Application logging will be redirected to standard error. Use `-` to signify standard in.")
+    parser.add_argument(
+        "--comfy-api-base",
+        type=str,
+        default="https://api.comfy.org",
+        help="Set the base URL for the ComfyUI API.  (default: https://api.comfy.org)",
+    )
+
+    parser.add_argument(
+        "--block-runtime-package-installation",
+        action="store_true",
+        help="When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental)."
+    )
+
+    default_db_url = db_config()
+    parser.add_argument("--database-url", type=str, default=default_db_url, help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")
+    parser.add_argument("--workflows", type=str, action=FlattenAndAppendAction, nargs='+', default=[], help="Execute the API workflow(s) specified in the provided files. For each workflow, its outputs will be printed to a line to standard out. Application logging will be redirected to standard error. Use `-` to signify standard in.")
 
     # now give plugins a chance to add configuration
     for entry_point in entry_points().select(group='comfyui.custom_config'):
@@ -262,7 +296,7 @@ def _create_parser() -> EnhancedConfigArgParser:
                 if parser_result is not None:
                     parser = parser_result
         except Exception as exc:
-            logging.error("Failed to load custom config plugin", exc_info=exc)
+            logger.error("Failed to load custom config plugin", exc_info=exc)
 
     return parser
 
@@ -295,4 +329,19 @@ def default_configuration() -> Configuration:
     return _parse_args(_create_parser())
 
 
-args = _parse_args(args_parsing=options.args_parsing)
+def cli_args_configuration() -> Configuration:
+    return _parse_args(args_parsing=True)
+
+
+@_module_properties.getter
+def _args() -> Configuration:
+    from .execution_context import current_execution_context
+    return current_execution_context().configuration
+
+
+__all__ = [
+    "args",  # pylint: disable=undefined-all-variable, type: Configuration
+    "default_configuration",
+    "cli_args_configuration",
+    "DEFAULT_VERSION_STRING"
+]

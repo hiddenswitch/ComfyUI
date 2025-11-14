@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import time
+
 import collections.abc
 import logging
 import mimetypes
 import os
-import time
 from contextlib import nullcontext
 from functools import reduce
 from pathlib import Path, PurePosixPath
@@ -49,7 +50,11 @@ def _resolve_path_with_compatibility(path: Path | str) -> PurePosixPath | Path:
     if isinstance(path, PurePosixPath) and path.is_absolute():
         return path
     if not path.is_absolute():
-        return Path.resolve(_base_path() / path)
+        base_path_to_path = _base_path() / path
+        if base_path_to_path.is_absolute():
+            return base_path_to_path
+        else:
+            return Path.resolve(_base_path() / path)
     return Path(path).resolve()
 
 
@@ -81,11 +86,14 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
     if "HF_HUB_CACHE" in os.environ:
         hf_cache_paths.additional_absolute_directory_paths.append(os.environ.get("HF_HUB_CACHE"))
 
+    hf_xet = ModelPaths(["xet"], supported_extensions=set())
+    if "HF_XET_CACHE" in os.environ:
+        hf_xet.additional_absolute_directory_paths.append(os.environ.get("HF_XET_CACHE"))
     model_paths_to_add = [
         ModelPaths(["checkpoints"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["configs"], additional_absolute_directory_paths=[get_package_as_path("comfy.configs")], supported_extensions={".yaml"}),
         ModelPaths(["vae"], supported_extensions=set(supported_pt_extensions)),
-        ModelPaths(folder_names=["clip", "text_encoders"], supported_extensions=set(supported_pt_extensions)),
+        ModelPaths(folder_names=["text_encoders", "clip"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["loras"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(folder_names=["diffusion_models", "unet"], supported_extensions=set(supported_pt_extensions), folder_names_are_relative_directory_paths_too=True),
         ModelPaths(["clip_vision"], supported_extensions=set(supported_pt_extensions)),
@@ -93,7 +101,7 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
         ModelPaths(["embeddings"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["diffusers"], supported_extensions=set()),
         ModelPaths(["vae_approx"], supported_extensions=set(supported_pt_extensions)),
-        ModelPaths(folder_names=["controlnet", "t2i_adapter"], supported_extensions=set(supported_pt_extensions), folder_names_are_relative_directory_paths_too=True),
+        ModelPaths(folder_names=["controlnet", "t2i_adapter", "diff_controlnet"], supported_extensions=set(supported_pt_extensions), folder_names_are_relative_directory_paths_too=True),
         ModelPaths(["gligen"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["upscale_models"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["custom_nodes"], folder_name_base_path_subdir=construct_path(""), supported_extensions=set()),
@@ -101,7 +109,10 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
         ModelPaths(["photomaker"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["classifiers"], supported_extensions=set()),
         ModelPaths(["huggingface"], supported_extensions=set()),
+        ModelPaths(["model_patches"], supported_extensions=set(supported_pt_extensions)),
+        ModelPaths(["audio_encoders"], supported_extensions=set(supported_pt_extensions)),
         hf_cache_paths,
+        hf_xet,
     ]
     for model_paths in model_paths_to_add:
         if replace_existing:
@@ -429,7 +440,6 @@ def filter_files_content_types(files: list[str], content_types: list[Literal["im
         files = os.listdir(folder_paths.get_input_directory())
         filter_files_content_types(files, ["image", "audio", "video"])
     """
-    extension_mimetypes_cache = _extension_mimetypes_cache()
     result = []
     for file in files:
         extension = file.split('.')[-1]
@@ -445,6 +455,30 @@ def filter_files_content_types(files: list[str], content_types: list[Literal["im
         if content_type in content_types:
             result.append(file)
     return result
+
+
+def get_input_subfolders() -> list[str]:
+    """Returns a list of all subfolder paths in the input directory, recursively.
+
+    Returns:
+        List of folder paths relative to the input directory, excluding the root directory
+    """
+    input_dir = get_input_directory()
+    folders = []
+
+    try:
+        if not os.path.exists(input_dir):
+            return []
+
+        for root, dirs, _ in os.walk(input_dir):
+            rel_path = os.path.relpath(root, input_dir)
+            if rel_path != ".":  # Only include non-root directories
+                # Normalize path separators to forward slashes
+                folders.append(rel_path.replace(os.sep, '/'))
+
+        return sorted(folders)
+    except FileNotFoundError:
+        return []
 
 
 @_module_properties.getter
@@ -491,5 +525,6 @@ __all__ = [
     "get_save_image_path",
     "create_directories",
     "invalidate_cache",
-    "filter_files_content_types"
+    "filter_files_content_types",
+    "get_input_subfolders",
 ]

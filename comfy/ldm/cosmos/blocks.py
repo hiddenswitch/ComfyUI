@@ -23,25 +23,15 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from torch import nn
 
-from comfy.ldm.modules.diffusionmodules.mmdit import RMSNorm
-from comfy.ldm.modules.attention import optimized_attention
+from ..modules.attention import optimized_attention
 
+logger = logging.getLogger(__name__)
 
-def apply_rotary_pos_emb(
-    t: torch.Tensor,
-    freqs: torch.Tensor,
-) -> torch.Tensor:
-    t_ = t.reshape(*t.shape[:-1], 2, -1).movedim(-2, -1).unsqueeze(-2).float()
-    t_out = freqs[..., 0] * t_[..., 0] + freqs[..., 1] * t_[..., 1]
-    t_out = t_out.movedim(-1, -2).reshape(*t.shape).type_as(t)
-    return t_out
-
-
-def get_normalization(name: str, channels: int, weight_args={}):
+def get_normalization(name: str, channels: int, weight_args={}, operations=None):
     if name == "I":
         return nn.Identity()
     elif name == "R":
-        return RMSNorm(channels, elementwise_affine=True, eps=1e-6, **weight_args)
+        return operations.RMSNorm(channels, elementwise_affine=True, eps=1e-6, **weight_args)
     else:
         raise ValueError(f"Normalization {name} not found")
 
@@ -120,15 +110,15 @@ class Attention(nn.Module):
 
         self.to_q = nn.Sequential(
             operations.Linear(query_dim, inner_dim, bias=qkv_bias, **weight_args),
-            get_normalization(qkv_norm[0], norm_dim),
+            get_normalization(qkv_norm[0], norm_dim, weight_args=weight_args, operations=operations),
         )
         self.to_k = nn.Sequential(
             operations.Linear(context_dim, inner_dim, bias=qkv_bias, **weight_args),
-            get_normalization(qkv_norm[1], norm_dim),
+            get_normalization(qkv_norm[1], norm_dim, weight_args=weight_args, operations=operations),
         )
         self.to_v = nn.Sequential(
             operations.Linear(context_dim, inner_dim, bias=qkv_bias, **weight_args),
-            get_normalization(qkv_norm[2], norm_dim),
+            get_normalization(qkv_norm[2], norm_dim, weight_args=weight_args, operations=operations),
         )
 
         self.to_out = nn.Sequential(
@@ -187,6 +177,7 @@ class Attention(nn.Module):
         context=None,
         mask=None,
         rope_emb=None,
+        transformer_options={},
         **kwargs,
     ):
         """
@@ -195,7 +186,7 @@ class Attention(nn.Module):
             context (Optional[Tensor]): The key tensor of shape [B, Mk, K] or use x as context [self attention] if None
         """
         q, k, v = self.cal_qkv(x, context, mask, rope_emb=rope_emb, **kwargs)
-        out = optimized_attention(q, k, v, self.heads, skip_reshape=True, mask=mask, skip_output_reshape=True)
+        out = optimized_attention(q, k, v, self.heads, skip_reshape=True, mask=mask, skip_output_reshape=True, transformer_options=transformer_options)
         del q, k, v
         out = rearrange(out, " b n s c -> s b (n c)")
         return self.to_out(out)
@@ -304,7 +295,7 @@ class Timesteps(nn.Module):
 class TimestepEmbedding(nn.Module):
     def __init__(self, in_features: int, out_features: int, use_adaln_lora: bool = False, weight_args={}, operations=None):
         super().__init__()
-        logging.debug(
+        logger.debug(
             f"Using AdaLN LoRA Flag:  {use_adaln_lora}. We enable bias if no AdaLN LoRA for backward compatibility."
         )
         self.linear_1 = operations.Linear(in_features, out_features, bias=not use_adaln_lora, **weight_args)
@@ -557,6 +548,7 @@ class VideoAttn(nn.Module):
         context: Optional[torch.Tensor] = None,
         crossattn_mask: Optional[torch.Tensor] = None,
         rope_emb_L_1_1_D: Optional[torch.Tensor] = None,
+        transformer_options: Optional[dict] = {},
     ) -> torch.Tensor:
         """
         Forward pass for video attention.
@@ -582,6 +574,7 @@ class VideoAttn(nn.Module):
             context_M_B_D,
             crossattn_mask,
             rope_emb=rope_emb_L_1_1_D,
+            transformer_options=transformer_options,
         )
         x_T_H_W_B_D = rearrange(x_THW_B_D, "(t h w) b d -> t h w b d", h=H, w=W)
         return x_T_H_W_B_D
@@ -676,6 +669,7 @@ class DITBuildingBlock(nn.Module):
         crossattn_mask: Optional[torch.Tensor] = None,
         rope_emb_L_1_1_D: Optional[torch.Tensor] = None,
         adaln_lora_B_3D: Optional[torch.Tensor] = None,
+        transformer_options: Optional[dict] = {},
     ) -> torch.Tensor:
         """
         Forward pass for dynamically configured blocks with adaptive normalization.
@@ -713,6 +707,7 @@ class DITBuildingBlock(nn.Module):
                 adaln_norm_state(self.norm_state, x, scale_1_1_1_B_D, shift_1_1_1_B_D),
                 context=None,
                 rope_emb_L_1_1_D=rope_emb_L_1_1_D,
+                transformer_options=transformer_options,
             )
         elif self.block_type in ["cross_attn", "ca"]:
             x = x + gate_1_1_1_B_D * self.block(
@@ -720,6 +715,7 @@ class DITBuildingBlock(nn.Module):
                 context=crossattn_emb,
                 crossattn_mask=crossattn_mask,
                 rope_emb_L_1_1_D=rope_emb_L_1_1_D,
+                transformer_options=transformer_options,
             )
         else:
             raise ValueError(f"Unknown block type: {self.block_type}")
@@ -795,6 +791,7 @@ class GeneralDITTransformerBlock(nn.Module):
         crossattn_mask: Optional[torch.Tensor] = None,
         rope_emb_L_1_1_D: Optional[torch.Tensor] = None,
         adaln_lora_B_3D: Optional[torch.Tensor] = None,
+        transformer_options: Optional[dict] = {},
     ) -> torch.Tensor:
         for block in self.blocks:
             x = block(
@@ -804,5 +801,6 @@ class GeneralDITTransformerBlock(nn.Module):
                 crossattn_mask,
                 rope_emb_L_1_1_D=rope_emb_L_1_1_D,
                 adaln_lora_B_3D=adaln_lora_B_3D,
+                transformer_options=transformer_options,
             )
         return x

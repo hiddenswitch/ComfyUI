@@ -1,14 +1,18 @@
 import torch
 from .model_management import cast_to
 import numbers
+import logging
 
 RMSNorm = None
 
+logger = logging.getLogger(__name__)
+
 try:
-    rms_norm_torch = torch.nn.functional.rms_norm
-    RMSNorm = torch.nn.RMSNorm
+    rms_norm_torch = torch.nn.functional.rms_norm  # pylint: disable=no-member
+    RMSNorm = torch.nn.RMSNorm # pylint: disable=no-member
 except:
     rms_norm_torch = None
+    logger.debug("Please update pytorch to use native RMSNorm")
 
 
 def rms_norm(x, weight=None, eps=1e-6):
@@ -30,7 +34,7 @@ if RMSNorm is None:
         def __init__(
             self,
             normalized_shape,
-            eps=None,
+            eps=1e-6,
             elementwise_affine=True,
             device=None,
             dtype=None,

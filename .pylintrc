@@ -68,7 +68,7 @@ ignored-modules=sentencepiece.*,comfy.api,comfy.cmd.folder_paths
 
 # Python code to execute, usually for sys.path manipulation such as
 # pygtk.require().
-#init-hook=
+init-hook='import sys; sys.path.insert(0, ".")'
 
 # Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
 # number of processors available to use, and will cap the count on Windows to
@@ -82,7 +82,7 @@ limit-inference-results=100
 
 # List of plugins (as comma separated values of python module names) to load,
 # usually to register additional checkers.
-load-plugins=tests.absolute_import_checker
+load-plugins=tests.absolute_import_checker,tests.main_pre_import_checker
 
 # Pickle collected data for later comparisons.
 persistent=yes
@@ -106,14 +106,14 @@ source-roots=
 
 # When enabled, pylint would attempt to guess common misconfiguration and emit
 # user-friendly hints instead of false-positive error messages.
-suggestion-mode=yes
+# suggestion-mode=yes
 
 # Allow loading of arbitrary C extensions. Extensions are imported into the
 # active Python interpreter and may run arbitrary code.
 unsafe-load-any-extension=no
 
 # In verbose mode, extra non-checker-related info will be displayed.
-#verbose=
+# verbose=
 
 
 [BASIC]
@@ -600,7 +600,6 @@ disable=raw-checker-failed,
         preferred-module,
         misplaced-future,
         shadowed-import,
-        deprecated-module,
         missing-timeout,
         useless-with-lock,
         bare-except,
@@ -623,11 +622,6 @@ disable=raw-checker-failed,
         unspecified-encoding,
         forgotten-debug-statement,
         method-cache-max-size-none,
-        deprecated-method,
-        deprecated-argument,
-        deprecated-class,
-        deprecated-decorator,
-        deprecated-attribute,
         bad-format-string-key,
         unused-format-string-key,
         bad-format-string,
@@ -678,7 +672,12 @@ disable=raw-checker-failed,
 # either give multiple identifier separated by comma (,) or put this option
 # multiple time (only on the command line, not in the configuration file where
 # it should appear only once). See also the "--disable" option for examples.
-enable=absolute-import-used
+enable=deprecated-module,
+       deprecated-method,
+       deprecated-argument,
+       deprecated-class,
+       deprecated-decorator,
+       deprecated-attribute
 
 [METHOD_ARGS]
 
@@ -804,7 +803,7 @@ contextmanager-decorators=contextlib.contextmanager
 # List of members which are set dynamically and missed by pylint inference
 # system, and so shouldn't trigger E1101 when accessed. Python regular
 # expressions are accepted.
-generated-members=
+generated-members=cv2.*,sentencepiece.*
 
 # Tells whether to warn about missing members when the owner of the attribute
 # is inferred to be None.

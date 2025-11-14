@@ -1,7 +1,7 @@
 import asyncio
 import contextvars
 import gc
-import itertools
+
 import logging
 import os
 import shutil
@@ -10,9 +10,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from comfy.component_model.entrypoints_common import configure_application_paths, executor_from_args
-# main_pre must be the earliest import since it suppresses some spurious warnings
-from .main_pre import args
+# main_pre must be the earliest import
+from .main_pre import tracer
+from ..cli_args_types import Configuration
+from ..component_model.file_counter import cleanup_temp as fc_cleanup_temp
+from ..execution_context import current_execution_context
 from . import hook_breaker_ac10a0
 from .extra_model_paths import load_extra_path_config
 from .. import model_management
@@ -21,9 +23,11 @@ from ..cmd import cuda_malloc
 from ..cmd import folder_paths
 from ..cmd import server as server_module
 from ..component_model.abstract_prompt_queue import AbstractPromptQueue
+from ..component_model.entrypoints_common import configure_application_paths, executor_from_args
 from ..distributed.distributed_prompt_queue import DistributedPromptQueue
 from ..distributed.server_stub import ServerStub
 from ..nodes.package import import_all_nodes_in_workspace
+from ..nodes_context import get_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +46,14 @@ def cuda_malloc_warning():
 
 
 def prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer):
+    asyncio.run(_prompt_worker(q, server_instance))
+
+
+async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer):
     from ..cmd import execution
     from ..component_model import queue_types
     from .. import model_management
+    args = current_execution_context().configuration
     cache_type = execution.CacheType.CLASSIC
     if args.cache_lru > 0:
         cache_type = execution.CacheType.LRU
@@ -68,21 +77,39 @@ def prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptS
             prompt_id = item[1]
             server_instance.last_prompt_id = prompt_id
 
-            e.execute(item[2], prompt_id, item[3], item[4])
+            await e.execute_async(item[2], prompt_id, item[3], item[4])
             need_gc = True
+
+            # Extract error details from status_messages if there's an error
+            error_details = None
+            if not e.success:
+                for event, data in e.status_messages:
+                    if event == "execution_error":
+                        error_details = data
+                        break
+
+            # Convert status_messages tuples to string messages for backward compatibility
+            messages = [f"{event}: {data.get('exception_message', str(data))}" if isinstance(data, dict) and 'exception_message' in data else f"{event}" for event, data in e.status_messages]
+
             q.task_done(item_id,
                         e.history_result,
                         status=queue_types.ExecutionStatus(
                             status_str='success' if e.success else 'error',
                             completed=e.success,
-                            messages=e.status_messages))
+                            messages=messages),
+                        error_details=error_details)
             if server_instance.client_id is not None:
                 server_instance.send_sync("executing", {"node": None, "prompt_id": prompt_id},
                                           server_instance.client_id)
 
             current_time = time.perf_counter()
             execution_time = current_time - execution_start_time
-            logger.debug("Prompt executed in {:.2f} seconds".format(execution_time))
+            # Log Time in a more readable way after 10 minutes
+            if execution_time > 600:
+                execution_time = time.strftime("%H:%M:%S", time.gmtime(execution_time))
+                logger.info(f"Prompt executed in {execution_time}")
+            else:
+                logger.info("Prompt executed in {:.2f} seconds".format(execution_time))
 
         flags = q.get_flags()
         free_memory = flags.get("free_memory", False)
@@ -130,11 +157,29 @@ def start_comfyui(asyncio_loop: asyncio.AbstractEventLoop = None):
     asyncio_loop.run_until_complete(_start_comfyui())
 
 
-async def _start_comfyui(from_script_dir: Optional[Path] = None):
+def setup_database():
+    from ..app.database.db import dependencies_available, init_db
+    if dependencies_available():
+        init_db()
+
+
+async def _start_comfyui(from_script_dir: Optional[Path] = None, configuration: Optional[Configuration] = None):
+    from ..execution_context import context_configuration
+    from ..cli_args import cli_args_configuration
+    configuration = configuration or cli_args_configuration()
+    with (
+        context_configuration(configuration),
+        fc_cleanup_temp()
+    ):
+        await __start_comfyui(from_script_dir=from_script_dir)
+
+
+async def __start_comfyui(from_script_dir: Optional[Path] = None):
     """
     Runs ComfyUI's frontend and backend like upstream.
     :param from_script_dir: when set to a path, assumes that you are running ComfyUI's legacy main.py entrypoint at the root of the git repository located at the path
     """
+    args = current_execution_context().configuration
     if not from_script_dir:
         os_getcwd = os.getcwd()
     else:
@@ -144,7 +189,6 @@ async def _start_comfyui(from_script_dir: Optional[Path] = None):
         temp_dir = os.path.join(os.path.abspath(args.temp_directory), "temp")
         logger.debug(f"Setting temp directory to: {temp_dir}")
         folder_paths.set_temp_directory(temp_dir)
-    cleanup_temp()
 
     if args.user_directory:
         user_dir = os.path.abspath(args.user_directory)
@@ -160,18 +204,19 @@ async def _start_comfyui(from_script_dir: Optional[Path] = None):
         pass
 
     if args.extra_model_paths_config:
-        for config_path in itertools.chain(*args.extra_model_paths_config):
+        for config_path in args.extra_model_paths_config:
             load_extra_path_config(config_path)
 
-    # always create directories when started interactively
-    folder_paths.create_directories()
     if args.create_directories:
+        # then, import and exit
         import_all_nodes_in_workspace(raise_on_failure=False)
         folder_paths.create_directories()
         exit(0)
+    elif args.quick_test_for_ci:
+        import_all_nodes_in_workspace(raise_on_failure=True)
+        exit(0)
 
     if args.windows_standalone_build:
-        folder_paths.create_directories()
         try:
             from . import new_updater
             new_updater.update_windows_updater()
@@ -185,7 +230,9 @@ async def _start_comfyui(from_script_dir: Optional[Path] = None):
 
     # at this stage, it's safe to import nodes
     hook_breaker_ac10a0.save_functions()
-    server.nodes = import_all_nodes_in_workspace()
+    nodes_to_import = get_nodes()
+    logger.debug(f"Imported {len(nodes_to_import)} nodes")
+    server.nodes = nodes_to_import
     hook_breaker_ac10a0.restore_functions()
     # as a side effect, this also populates the nodes for execution
 
@@ -208,6 +255,7 @@ async def _start_comfyui(from_script_dir: Optional[Path] = None):
 
     server.add_routes()
     cuda_malloc_warning()
+    setup_database()
 
     # in a distributed setting, the default prompt worker will not be able to send execution events via the websocket
     worker_thread_server = server if not distributed else ServerStub()
@@ -241,15 +289,8 @@ async def _start_comfyui(from_script_dir: Optional[Path] = None):
         logger.debug(f"Setting input directory to: {input_dir}")
         folder_paths.set_input_directory(input_dir)
 
-    if args.quick_test_for_ci:
-        # for CI purposes, try importing all the nodes
-        import_all_nodes_in_workspace(raise_on_failure=True)
-        return
-    else:
-        # we no longer lazily load nodes. we'll do it now for the sake of creating directories
-        import_all_nodes_in_workspace(raise_on_failure=False)
-        # now that nodes are loaded, create more directories if appropriate
-        folder_paths.create_directories()
+    # now that nodes are loaded, create directories
+    folder_paths.create_directories()
 
     if len(args.workflows) > 0:
         configure_application_paths(args)
@@ -280,11 +321,10 @@ async def _start_comfyui(from_script_dir: Optional[Path] = None):
         await run(server, address=first_listen_addr, port=args.port, verbose=not args.dont_print_server,
                   call_on_start=call_on_start)
     except (asyncio.CancelledError, KeyboardInterrupt):
-        logger.debug("\nStopped server")
+        logger.debug("Stopped server")
     finally:
         if distributed:
             await q.close()
-    cleanup_temp()
 
 
 def entrypoint():
@@ -292,6 +332,10 @@ def entrypoint():
         asyncio.run(_start_comfyui())
     except KeyboardInterrupt:
         logger.info(f"Gracefully shutting down due to KeyboardInterrupt")
+
+
+def main():
+    entrypoint()
 
 
 if __name__ == "__main__":

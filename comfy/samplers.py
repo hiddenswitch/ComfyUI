@@ -22,15 +22,21 @@ from .k_diffusion import sampling as k_diffusion_sampling
 from .model_base import BaseModel
 from .model_management_types import ModelOptions
 from .model_patcher import ModelPatcher
-from .sampler_names import SCHEDULER_NAMES, SAMPLER_NAMES
+from .sampler_names import SCHEDULER_NAMES, SAMPLER_NAMES, KSAMPLER_NAMES
+from .context_windows import ContextHandlerABC
+from .utils import common_upscale
+from .patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
+from .component_model import module_property
 
 logger = logging.getLogger(__name__)
+_module_properties = module_property.create_module_properties()
 
 
 def add_area_dims(area, num_dims):
     while (len(area) // 2) < num_dims:
         area = [2147483648] + area[:len(area) // 2] + [0] + area[len(area) // 2:]
     return area
+
 
 def get_area_and_mult(conds, x_in, timestep_in):
     dims = tuple(x_in.shape[2:])
@@ -67,7 +73,7 @@ def get_area_and_mult(conds, x_in, timestep_in):
         if "mask_strength" in conds:
             mask_strength = conds["mask_strength"]
         mask = conds['mask']
-        assert (mask.shape[1:] == x_in.shape[2:])
+        # assert (mask.shape[1:] == x_in.shape[2:])
 
         mask = mask[:input_x.shape[0]]
         if area is not None:
@@ -75,7 +81,7 @@ def get_area_and_mult(conds, x_in, timestep_in):
                 mask = mask.narrow(i + 1, area[len(dims) + i], area[i])
 
         mask = mask * mask_strength
-        mask = mask.unsqueeze(1).repeat(input_x.shape[0] // mask.shape[0], input_x.shape[1], 1, 1)
+        mask = mask.unsqueeze(1).repeat((input_x.shape[0] // mask.shape[0], input_x.shape[1]) + (1,) * (mask.ndim - 1))
     else:
         mask = torch.ones_like(input_x)
     mult = mask * strength
@@ -96,7 +102,7 @@ def get_area_and_mult(conds, x_in, timestep_in):
     conditioning = {}
     model_conds = conds["model_conds"]
     for c in model_conds:
-        conditioning[c] = model_conds[c].process_cond(batch_size=x_in.shape[0], device=x_in.device, area=area)
+        conditioning[c] = model_conds[c].process_cond(batch_size=x_in.shape[0], area=area)
 
     hooks = conds.get('hooks', None)
     control = conds.get('control', None)
@@ -210,7 +216,14 @@ def finalize_default_conds(model: BaseModel, hooked_to_run: dict[HookGroup, list
             hooked_to_run[p.hooks] += [(p, i)]
 
 
-def calc_cond_batch(model: BaseModel, conds: list[list[dict]], x_in: torch.Tensor, timestep, model_options):
+def calc_cond_batch(model: BaseModel, conds: list[list[dict]], x_in: torch.Tensor, timestep, model_options: dict[str]):
+    handler: ContextHandlerABC = model_options.get("context_handler", None)
+    if handler is None or not handler.should_use_context(model, conds, x_in, timestep, model_options):
+        return _calc_cond_batch_outer(model, conds, x_in, timestep, model_options)
+    return handler.execute(_calc_cond_batch_outer, model, conds, x_in, timestep, model_options)
+
+
+def _calc_cond_batch_outer(model: BaseModel, conds: list[list[dict]], x_in: torch.Tensor, timestep, model_options):
     executor = patcher_extension.WrapperExecutor.new_executor(
         _calc_cond_batch,
         patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.CALC_COND_BATCH, model_options, is_model_options=True)
@@ -269,7 +282,13 @@ def _calc_cond_batch(model: BaseModel, conds, x_in: torch.Tensor, timestep: torc
             for i in range(1, len(to_batch_temp) + 1):
                 batch_amount = to_batch_temp[:len(to_batch_temp) // i]
                 input_shape = [len(batch_amount) * first_shape[0]] + list(first_shape)[1:]
-                if model.memory_required(input_shape) * 1.5 < free_memory:
+                cond_shapes = collections.defaultdict(list)
+                for tt in batch_amount:
+                    cond = {k: v.size() for k, v in to_run[tt][0].conditioning.items()}
+                    for k, v in to_run[tt][0].conditioning.items():
+                        cond_shapes[k].append(v.size())
+
+                if model.memory_required(input_shape, cond_shapes=cond_shapes) * 1.5 < free_memory:
                     to_batch = batch_amount
                     break
 
@@ -305,17 +324,10 @@ def _calc_cond_batch(model: BaseModel, conds, x_in: torch.Tensor, timestep: torc
                                                                            copy_dict1=False)
 
             if patches is not None:
-                # TODO: replace with merge_nested_dicts function
-                if "patches" in transformer_options:
-                    cur_patches = transformer_options["patches"].copy()
-                    for p in patches:
-                        if p in cur_patches:
-                            cur_patches[p] = cur_patches[p] + patches[p]
-                        else:
-                            cur_patches[p] = patches[p]
-                    transformer_options["patches"] = cur_patches
-                else:
-                    transformer_options["patches"] = patches
+                transformer_options["patches"] = patcher_extension.merge_nested_dicts(
+                    transformer_options.get("patches", {}),
+                    patches
+                )
 
             transformer_options["cond_or_uncond"] = cond_or_uncond[:]
             transformer_options["uuids"] = uuids[:]
@@ -363,7 +375,7 @@ def cfg_function(model, cond_pred, uncond_pred, cond_scale, x, timestep, model_o
         model_options = {}
     if "sampler_cfg_function" in model_options:
         args = {"cond": x - cond_pred, "uncond": x - uncond_pred, "cond_scale": cond_scale, "timestep": timestep, "input": x, "sigma": timestep,
-                "cond_denoised": cond_pred, "uncond_denoised": uncond_pred, "model": model, "model_options": model_options}
+                "cond_denoised": cond_pred, "uncond_denoised": uncond_pred, "model": model, "model_options": model_options, "input_cond": cond, "input_uncond": uncond}
         cfg_result = x - model_options["sampler_cfg_function"](args)
     else:
         cfg_result = uncond_pred + (cond_pred - uncond_pred) * cond_scale
@@ -387,7 +399,11 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
         uncond_ = uncond
 
     conds = [cond, uncond_]
-    out = calc_cond_batch(model, conds, x, timestep, model_options)
+    if "sampler_calc_cond_batch_function" in model_options:
+        args = {"conds": conds, "input": x, "sigma": timestep, "model": model, "model_options": model_options}
+        out = model_options["sampler_calc_cond_batch_function"](args)
+    else:
+        out = calc_cond_batch(model, conds, x, timestep, model_options)
 
     for fn in model_options.get("sampler_pre_cfg_function", []):
         args = {"conds": conds, "conds_out": out, "cond_scale": cond_scale, "timestep": timestep,
@@ -567,7 +583,10 @@ def resolve_areas_and_cond_masks_multidim(conditions, dims, device):
             if len(mask.shape) == len(dims):
                 mask = mask.unsqueeze(0)
             if mask.shape[1:] != dims:
-                mask = torch.nn.functional.interpolate(mask.unsqueeze(1), size=dims, mode='bilinear', align_corners=False).squeeze(1)
+                if mask.ndim < 4:
+                    mask = common_upscale(mask.unsqueeze(1), dims[-1], dims[-2], 'bilinear', 'none').squeeze(1)
+                else:
+                    mask = common_upscale(mask, dims[-1], dims[-2], 'bilinear', 'none')
 
             if modified.get("set_area_to_bounds", False):  # TODO: handle dim != 2
                 bounds = torch.max(torch.abs(mask), dim=0).values.unsqueeze(0)
@@ -743,6 +762,12 @@ class Sampler:
         max_sigma = float(model_wrap.inner_model.model_sampling.sigma_max)
         sigma = float(sigmas[0])
         return math.isclose(max_sigma, sigma, rel_tol=1e-05) or sigma > max_sigma
+
+
+@_module_properties.getter
+def _KSAMPLER_NAMES():
+    return KSAMPLER_NAMES
+
 
 class KSAMPLER(Sampler):
     def __init__(self, sampler_function, extra_options={}, inpaint_options={}):
@@ -971,7 +996,14 @@ class CFGGuider:
             self.original_conds[k] = sampler_helpers.convert_cond(conds[k])
 
     def __call__(self, *args, **kwargs):
-        return self.predict_noise(*args, **kwargs)
+        return self.outer_predict_noise(*args, **kwargs)
+
+    def outer_predict_noise(self, x, timestep, model_options={}, seed=None):
+        return WrapperExecutor.new_class_executor(
+            self.predict_noise,
+            self,
+            get_all_wrappers(WrappersMP.PREDICT_NOISE, self.model_options, is_model_options=True)
+        ).execute(x, timestep, model_options, seed)
 
     def predict_noise(self, x, timestep, model_options={}, seed=None):
         return sampling_function(self.inner_model, x, timestep, self.conds.get("negative", None), self.conds.get("positive", None), self.cfg, model_options=model_options, seed=seed)
@@ -1071,13 +1103,13 @@ class SchedulerHandler(NamedTuple):
 
 
 SCHEDULER_HANDLERS = {
-    "normal": SchedulerHandler(normal_scheduler),
+    "simple": SchedulerHandler(simple_scheduler),
+    "sgm_uniform": SchedulerHandler(partial(normal_scheduler, sgm=True)),
     "karras": SchedulerHandler(k_diffusion_sampling.get_sigmas_karras, use_ms=False),
     "exponential": SchedulerHandler(k_diffusion_sampling.get_sigmas_exponential, use_ms=False),
-    "sgm_uniform": SchedulerHandler(partial(normal_scheduler, sgm=True)),
-    "simple": SchedulerHandler(simple_scheduler),
     "ddim_uniform": SchedulerHandler(ddim_scheduler),
     "beta": SchedulerHandler(beta_scheduler),
+    "normal": SchedulerHandler(normal_scheduler),
     "linear_quadratic": SchedulerHandler(linear_quadratic_schedule),
     "kl_optimal": SchedulerHandler(kl_optimal_scheduler, use_ms=False),
 }

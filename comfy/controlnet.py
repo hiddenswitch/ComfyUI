@@ -36,14 +36,17 @@ from .ldm.cascade import controlnet as cascade_controlnet
 from .ldm.flux import controlnet as controlnet_flux
 from .ldm.hydit.controlnet import HunYuanControlNet
 from .t2i_adapter import adapter
+from .model_base import convert_tensor
+from .model_management import cast_to_device
+from .ldm.qwen_image.controlnet import QwenImageControlNetModel
 
 if TYPE_CHECKING:
     from .hooks import HookGroup
+logger = logging.getLogger(__name__)
 
 
 def broadcast_image_to(tensor, target_batch_size, batched_number):
     current_batch_size = tensor.shape[0]
-    # print(current_batch_size, target_batch_size)
     if current_batch_size == 1:
         return tensor
 
@@ -93,7 +96,7 @@ class ControlBase:
         self.timestep_percent_range = timestep_percent_range
         if self.latent_format is not None:
             if vae is None:
-                logging.warning("WARNING: no VAE provided to the controlnet apply node when this controlnet requires one.")
+                logger.warning("WARNING: no VAE provided to the controlnet apply node when this controlnet requires one.")
             self.vae = vae
         self.extra_concat_orig = extra_concat.copy()
         if self.concat_mask and len(self.extra_concat_orig) == 0:
@@ -239,11 +242,11 @@ class ControlNet(ControlBase):
             self.cond_hint = None
             compression_ratio = self.compression_ratio
             if self.vae is not None:
-                compression_ratio *= self.vae.downscale_ratio
+                compression_ratio *= self.vae.spacial_compression_encode()
             else:
                 if self.latent_format is not None:
                     raise ValueError("This Controlnet needs a VAE but none was provided, please use a ControlNetApply node with a VAE input and connect it.")
-            self.cond_hint = utils.common_upscale(self.cond_hint_original, x_noisy.shape[3] * compression_ratio, x_noisy.shape[2] * compression_ratio, self.upscale_algorithm, "center")
+            self.cond_hint = utils.common_upscale(self.cond_hint_original, x_noisy.shape[-1] * compression_ratio, x_noisy.shape[-2] * compression_ratio, self.upscale_algorithm, "center")
             self.cond_hint = self.preprocess_image(self.cond_hint)
             if self.vae is not None:
                 loaded_models = model_management.loaded_models(only_currently_used=True)
@@ -255,7 +258,10 @@ class ControlNet(ControlBase):
                 to_concat = []
                 for c in self.extra_concat_orig:
                     c = c.to(self.cond_hint.device)
-                    c = utils.common_upscale(c, self.cond_hint.shape[3], self.cond_hint.shape[2], self.upscale_algorithm, "center")
+                    c = utils.common_upscale(c, self.cond_hint.shape[-1], self.cond_hint.shape[-2], self.upscale_algorithm, "center")
+                    if c.ndim < self.cond_hint.ndim:
+                        c = c.unsqueeze(2)
+                        c = utils.repeat_to_batch_size(c, self.cond_hint.shape[2], dim=2)
                     to_concat.append(utils.repeat_to_batch_size(c, self.cond_hint.shape[0]))
                 self.cond_hint = torch.cat([self.cond_hint] + to_concat, dim=1)
 
@@ -268,12 +274,12 @@ class ControlNet(ControlBase):
         for c in self.extra_conds:
             temp = cond.get(c, None)
             if temp is not None:
-                extra[c] = temp.to(dtype)
+                extra[c] = convert_tensor(temp, dtype, x_noisy.device)
 
         timestep = self.model_sampling_current.timestep(t)
         x_noisy = self.model_sampling_current.calculate_input(t, x_noisy)
 
-        control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.to(dtype), context=context.to(dtype), **extra)
+        control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.to(dtype), context=cast_to_device(context, x_noisy.device, dtype), **extra)
         return self.control_merge(control, control_prev, output_dtype=None)
 
     def copy(self):
@@ -394,8 +400,9 @@ class ControlLora(ControlNet):
                 pass
 
         for k in self.control_weights:
-            if k not in {"lora_controlnet"}:
-                utils.set_attr_param(self.control_model, k, self.control_weights[k].to(dtype).to(model_management.get_torch_device()))
+            if (k not in {"lora_controlnet"}):
+                if (k.endswith(".up") or k.endswith(".down") or k.endswith(".weight") or k.endswith(".bias")) and ("__" not in k):
+                    utils.set_attr_param(self.control_model, k, self.control_weights[k].to(dtype).to(model_management.get_torch_device()))
 
     def copy(self):
         c = ControlLora(self.control_weights, global_average_pooling=self.global_average_pooling)
@@ -442,10 +449,10 @@ def controlnet_load_state_dict(control_model, sd):
     missing, unexpected = control_model.load_state_dict(sd, strict=False)
 
     if len(missing) > 0:
-        logging.warning("missing controlnet keys: {}".format(missing))
+        logger.warning("missing controlnet keys: {}".format(missing))
 
     if len(unexpected) > 0:
-        logging.debug("unexpected controlnet keys: {}".format(unexpected))
+        logger.debug("unexpected controlnet keys: {}".format(unexpected))
     return control_model
 
 
@@ -655,6 +662,23 @@ def load_controlnet_flux_instantx(sd, model_options=None):
     return control
 
 
+def load_controlnet_qwen_instantx(sd, model_options={}):
+    model_config, operations, load_device, unet_dtype, manual_cast_dtype, offload_device = controlnet_config(sd, model_options=model_options)
+    control_latent_channels = sd.get("controlnet_x_embedder.weight").shape[1]
+
+    extra_condition_channels = 0
+    concat_mask = False
+    if control_latent_channels == 68:  # inpaint controlnet
+        extra_condition_channels = control_latent_channels - 64
+        concat_mask = True
+    control_model = QwenImageControlNetModel(extra_condition_channels=extra_condition_channels, operations=operations, device=offload_device, dtype=unet_dtype, **model_config.unet_config)
+    control_model = controlnet_load_state_dict(control_model, sd)
+    latent_format = latent_formats.Wan21()
+    extra_conds = []
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds)
+    return control
+
+
 def convert_mistoline(sd):
     return utils.state_dict_prefix_replace(sd, {"single_controlnet_blocks.": "controlnet_single_blocks."})
 
@@ -720,7 +744,7 @@ def load_controlnet_state_dict(state_dict, model=None, model_options=None, ckpt_
 
         leftover_keys = controlnet_data.keys()
         if len(leftover_keys) > 0:
-            logging.warning("leftover keys: {}".format(leftover_keys))
+            logger.warning("leftover keys: {}".format(leftover_keys))
         controlnet_data = new_sd
     elif "controlnet_blocks.0.weight" in controlnet_data:
         if "double_blocks.0.img_attn.norm.key_norm.scale" in controlnet_data:
@@ -730,8 +754,11 @@ def load_controlnet_state_dict(state_dict, model=None, model_options=None, ckpt_
                 return load_controlnet_sd35(controlnet_data, model_options=model_options)  # Stability sd3.5 format
             else:
                 return load_controlnet_mmdit(controlnet_data, model_options=model_options)  # SD3 diffusers controlnet
+        elif "transformer_blocks.0.img_mlp.net.0.proj.weight" in controlnet_data:
+            return load_controlnet_qwen_instantx(controlnet_data, model_options=model_options)
         elif "controlnet_x_embedder.weight" in controlnet_data:
             return load_controlnet_flux_instantx(controlnet_data, model_options=model_options)
+
     elif "controlnet_blocks.0.linear.weight" in controlnet_data:  # mistoline flux
         return load_controlnet_flux_xlabs_mistoline(convert_mistoline(controlnet_data), mistoline=True, model_options=model_options)
 
@@ -747,7 +774,7 @@ def load_controlnet_state_dict(state_dict, model=None, model_options=None, ckpt_
     else:
         net = load_t2i_adapter(controlnet_data, model_options=model_options)
         if net is None:
-            logging.error("error could not detect control model type.")
+            logger.error("error could not detect control model type.")
         return net
 
     if controlnet_config is None:
@@ -791,7 +818,7 @@ def load_controlnet_state_dict(state_dict, model=None, model_options=None, ckpt_
                             cd = controlnet_data[x]
                             cd += model_sd[sd_key].type(cd.dtype).to(cd.device)
             else:
-                logging.warning("WARNING: Loaded a diff controlnet without a model. It will very likely not work.")
+                logger.warning("WARNING: Loaded a diff controlnet without a model. It will very likely not work.")
 
         class WeightsLoader(torch.nn.Module):
             pass
@@ -803,10 +830,10 @@ def load_controlnet_state_dict(state_dict, model=None, model_options=None, ckpt_
         missing, unexpected = control_model.load_state_dict(controlnet_data, strict=False)
 
     if len(missing) > 0:
-        logging.warning("missing controlnet keys: {}".format(missing))
+        logger.warning("missing controlnet keys: {}".format(missing))
 
     if len(unexpected) > 0:
-        logging.debug("unexpected controlnet keys: {}".format(unexpected))
+        logger.debug("unexpected controlnet keys: {}".format(unexpected))
 
     filename = os.path.splitext(ckpt_name)[0]
     global_average_pooling = model_options.get("global_average_pooling", False)
@@ -826,7 +853,7 @@ def load_controlnet(ckpt_path, model=None, model_options=None):
 
     cnet = load_controlnet_state_dict(utils.load_torch_file(ckpt_path, safe_load=True), model=model, model_options=model_options, ckpt_name=ckpt_path)
     if cnet is None:
-        logging.error("error checkpoint does not contain controlnet or t2i adapter data {}".format(ckpt_path))
+        logger.error("error checkpoint does not contain controlnet or t2i adapter data {}".format(ckpt_path))
     return cnet
 
 
@@ -933,9 +960,9 @@ def load_t2i_adapter(t2i_data, model_options={}):  # TODO: model_options
 
     missing, unexpected = model_ad.load_state_dict(t2i_data)
     if len(missing) > 0:
-        logging.warning("t2i missing {}".format(missing))
+        logger.warning("t2i missing {}".format(missing))
 
     if len(unexpected) > 0:
-        logging.debug("t2i unexpected {}".format(unexpected))
+        logger.debug("t2i unexpected {}".format(unexpected))
 
     return T2IAdapter(model_ad, model_ad.input_channels, compression_ratio, upscale_algorithm)

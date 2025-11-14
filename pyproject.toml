@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.3.29"
+version = "0.3.66"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -18,22 +18,21 @@ classifiers = [
 ]
 
 dependencies = [
+    "comfyui-frontend-package>=1.28.7",
+    "comfyui-workflow-templates>=0.1.95,<0.3.0",
+    "comfyui-embedded-docs>=0.3.0",
     "torch",
     "torchvision",
-    "torchaudio",
-    "comfyui-frontend-package",
-    "comfyui-workflow-templates",
     "torchdiffeq>=0.2.3",
     "torchsde>=0.2.6",
     "einops>=0.6.0",
     "open-clip-torch>=2.24.0",
-    "transformers>=4.29.1",
+    "transformers>=4.46.0,!=4.53.0,!=4.53.1,!=4.53.2,!=4.57.0",
     "tokenizers>=0.13.3",
     "sentencepiece",
     "peft>=0.10.0",
     "torchinfo",
     "safetensors>=0.4.2",
-    "bitsandbytes; platform_system != 'Darwin'",
     "aiohttp>=3.11.8",
     "yarl>=1.9.4",
     "accelerate>=0.25.0",
@@ -53,7 +52,7 @@ dependencies = [
     "tqdm",
     "protobuf>=3.20.0,<5.0.0",
     "psutil",
-    "ConfigArgParse",
+    "ConfigArgParse>=1.7.1",
     "aio-pika",
     "pyjwt[crypto]",
     "kornia>=0.7.0",
@@ -66,17 +65,24 @@ dependencies = [
     "natsort",
     "OpenEXR",
     "opentelemetry-distro",
-    "opentelemetry-exporter-otlp<=1.27.0",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
     "opentelemetry-propagator-jaeger",
     "opentelemetry-instrumentation",
     "opentelemetry-util-http",
     "opentelemetry-instrumentation-aio-pika",
     "opentelemetry-instrumentation-requests",
+    "opentelemetry-instrumentation-aiohttp-server",
+    "opentelemetry-instrumentation-aiohttp-client",
+    "opentelemetry-instrumentation-asyncio",
+    "opentelemetry-instrumentation-urllib3",
+    "opentelemetry-processor-baggage",
     "opentelemetry-semantic-conventions",
     "wrapt>=1.16.0",
     "certifi",
     "spandrel>=0.3.4",
-    "numpy>=1.24.4",
+    # https://github.com/conda-forge/numba-feedstock/issues/158 until numba is released with support for a later version of numpy
+    "numpy>=1.24.4,<2.3",
     "soundfile",
     "watchdog",
     "PySoundFile",
@@ -96,12 +102,24 @@ dependencies = [
     "flax",
     "jax",
     "colour",
-    "av",
+    "av>=14.2.0,<16",
+    "pydantic~=2.0",
+    "pydantic-settings~=2.0",
     "typer",
     "ijson",
     "scikit-learn>=1.4.1",
     # everything that is a torch extension will need setuptools, so just include it
     "setuptools",
+    "alembic",
+    "SQLAlchemy",
+    "gguf",
+    "trimesh",
+    # doesn't support linux correctly yet
+    "stringzilla<4.2.0",
+    "requests_cache",
+    "universal_pathlib",
+    # yanked propcache is omitted
+    "propcache!=0.4.0",
 ]
 
 [build-system]
@@ -113,7 +131,7 @@ where = ["."]
 include = ["comfy*"]
 namespaces = false
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -128,9 +146,9 @@ dev = [
     "freezegun",
     "coverage",
     "pylint",
+    "astroid",
 ]
 
-[project.optional-dependencies]
 cpu = [
     "torch",
     "torchvision",
@@ -140,29 +158,53 @@ cpu = [
 cu126 = [
     "torch",
     "torchvision",
-    "torchaudio",
     "triton ; sys_platform == 'Linux'",
     "triton-windows ; sys_platform == 'win32'",
+    #    "torchaudio",
 ]
 
 cu128 = [
     "torch",
     "torchvision",
-    "torchaudio",
     "triton ; sys_platform == 'Linux'",
     "triton-windows ; sys_platform == 'win32'",
+    #    "torchaudio",
 ]
 
 rocm = [
     "torch",
     "torchvision",
-    "torchaudio",
-    "pytorch-triton-rocm"
+    #    "torchaudio",
+    "pytorch-triton-rocm",
+]
+
+# todo: wip for rocm libraries with Windows and better RDNA support when installing with uv
+# you'll need to look at the github actions workflow to see how this is done for e.g. an RX 7600
+# therock = [
+#     "rocm[libraries,devel] ; sys_platform != 'Darwin'",
+# ]
+
+mps = [
+    "torch",
+    "torchvision",
+    #    "torchaudio",
 ]
 
 attention = [
-    "sageattention",
+    "sageattention==2.2.0 ; sys_platform == 'Linux' or sys_platform == 'win32'",
     "flash_attn ; sys_platform == 'Linux'",
+]
+
+comfyui-manager = [
+    "GitPython",
+    "PyGithub",
+    "matrix-client==0.4.0",
+    "rich",
+    "typing-extensions",
+    "toml",
+    "uv",
+    "chardet",
+    "pip",
 ]
 
 [project.scripts]
@@ -176,13 +218,14 @@ Repository = "https://github.com/comfyanonymous/ComfyUI"
 
 [tool.uv]
 conflicts = [
-    [{ extra = "cpu" }, { extra = "cu126" }, { extra = "cu128" }, { extra = "rocm" }],
+    [{ extra = "cpu" }, { extra = "cu126" }, { extra = "cu128" }, { extra = "rocm" }, { extra = "mps" }],
 ]
 no-build-isolation-package = [
     "sageattention",
     "sage-attention",
     "flash_attn",
 ]
+prerelease = "allow"
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -201,7 +244,13 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/rocm6.3"
+url = "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0/"
+format = "flat"
+explicit = false
+
+[[tool.uv.index]]
+name = "pytorch-nightly-cpu"
+url = "https://download.pytorch.org/whl/nightly/cpu"
 explicit = true
 
 [tool.uv.sources]
@@ -210,40 +259,50 @@ torch = [
     { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
     { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
     { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
+    { index = "pytorch-nightly-cpu", extra = "mps", marker = "sys_platform == 'darwin'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
     { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
     { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
+    { index = "pytorch-nightly-cpu", extra = "mps", marker = "sys_platform == 'darwin'" },
 ]
 torchaudio = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
+    #    { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
+    #    { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
+    #    { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
+    #    { index = "pytorch-nightly-cpu", extra = "mps", marker = "sys_platform == 'darwin'" },
 ]
-comfyui-frontend-package = [
-    { git = "https://github.com/appmana/appmana-comfyui-frontend", subdirectory = "comfyui_frontend_package" },
-]
-"sageattention" = [
-    { git = "https://github.com/thu-ml/SageAttention.git", extra = "attention", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
+sageattention = [
+    { git = "https://github.com/thu-ml/SageAttention.git", marker = "sys_platform == 'Linux'", extra = "attention" },
+    { url = "https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post1/sageattention-2.2.0+cu128torch2.7.1.post1-cp39-abi3-win_amd64.whl", marker = "sys_platform == 'win32'", extra = "attention" },
 ]
 
+[[tool.uv.dependency-metadata]]
+name = "flash-attn"
+version = "2.6.3"
+requires-dist = ["torch", "einops"]
 
+[[tool.uv.dependency-metadata]]
+name = "sageattention"
+version = "2.2.0"
+requires-dist = ["torch"]
 
 [tool.ruff]
 lint.select = [
+    "N805", # invalid-first-argument-name-for-method
     "S307", # suspicious-eval-usage
     "S102", # exec
     "T", # print-usage
     "W", # pycodestyle Warnings
     "F", # Pyflakes
 ]
-exclude = ["*.ipynb"]
+exclude = ["*.ipynb", "**/generated/*.pyi"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["comfy/", "comfy_extras/"]
+packages = ["comfy/", "comfy_extras/", "comfy_api/", "comfy_api_nodes/", "comfy_config/", "comfy_execution/", "comfy_compatibility/"]

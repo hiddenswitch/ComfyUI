@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
+import pebble.common.types
 
 from comfy.cli_args_types import Configuration
 from comfy.client.embedded_comfy_client import Comfy
@@ -86,7 +87,7 @@ class UnrecoverableError(Exception):
     pass
 
 
-class TestExceptionNode(CustomNode):
+class ThrowsExceptionNode(CustomNode):
     """Node that raises a specific exception for testing"""
 
     @classmethod
@@ -112,7 +113,7 @@ class TestExceptionNode(CustomNode):
 
 # Export the node mappings
 TEST_NODE_CLASS_MAPPINGS = {
-    "TestExceptionNode": TestExceptionNode,
+    "TestExceptionNode": ThrowsExceptionNode,
 }
 
 TEST_NODE_DISPLAY_NAME_MAPPINGS = {
@@ -156,7 +157,7 @@ async def test_panic_on_exception_with_executor(executor_cls, executor_kwargs):
             async with Comfy(configuration=config, executor=executor) as client:
                 # Queue our failing workflow
                 await client.queue_prompt(create_failing_workflow())
-        except SystemExit:
+        except (SystemExit, pebble.common.types.ProcessExpired):
             sys_exit_called = True
         except UnrecoverableError:
             # We expect the exception to be raised here
@@ -189,6 +190,8 @@ async def test_no_panic_when_disabled_with_executor(executor_cls, executor_kwarg
           patch('sys.exit') as mock_exit):
         try:
             async with Comfy(configuration=config, executor=executor) as client:
+                from comfy.cli_args import args
+                assert len(args.panic_when) == 0
                 # Queue our failing workflow
                 await client.queue_prompt(create_failing_workflow())
         except SystemExit:

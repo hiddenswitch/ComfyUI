@@ -1,19 +1,26 @@
 from __future__ import annotations
 
+import collections
 import dataclasses
 import functools
 from os.path import split
 from pathlib import PurePosixPath
-from typing import Optional, List, Sequence, Union
+from typing import Optional, List, Sequence, Union, Iterable, Protocol
 
 from can_ada import parse, URL  # pylint: disable=no-name-in-module
-from typing_extensions import TypedDict, NotRequired
+from typing_extensions import TypedDict, NotRequired, runtime_checkable
+
+from .component_model.executor_types import ComboOptions
+from .component_model.files import canonicalize_path
+
+
 
 
 @dataclasses.dataclass(frozen=True)
 class UrlFile:
     _url: str
     _save_with_filename: Optional[str] = None
+    show_in_ui: Optional[bool] = True
 
     def __str__(self):
         return self.save_with_filename
@@ -54,6 +61,7 @@ class CivitFile:
     model_version_id: int
     filename: str
     trigger_words: Optional[Sequence[str]] = dataclasses.field(default_factory=tuple)
+    show_in_ui: Optional[bool] = True
 
     def __str__(self):
         return self.filename
@@ -89,6 +97,32 @@ class HuggingFile:
 
     def __str__(self):
         return self.save_with_filename or split(self.filename)[-1]
+
+
+class DownloadableFileList(ComboOptions, list[str]):
+    """
+    A list of downloadable files that can be validated differently than it will be serialized to JSON
+    """
+
+    def __init__(self, existing_files: Iterable[str], downloadable_files: Iterable[Downloadable]=tuple()):
+        super().__init__()
+        self._validation_view = set(existing_files)
+
+        ui_view = set(existing_files)
+
+        for f in downloadable_files:
+            main_name = str(f)
+            self._validation_view.add(canonicalize_path(main_name))
+            self._validation_view.update(map(canonicalize_path, f.alternate_filenames))
+            if f.save_with_filename is not None:
+                self._validation_view.add(canonicalize_path(f.save_with_filename))
+            if getattr(f, 'show_in_ui', True):
+                ui_view.add(main_name)
+
+        self.extend(sorted(list(map(canonicalize_path, ui_view))))
+
+    def view_for_validation(self) -> list[str]:
+        return sorted(list(frozenset(self._validation_view) | frozenset(self)))
 
 
 class CivitStats(TypedDict):
@@ -186,4 +220,4 @@ class CivitModelsGetResponse(TypedDict):
     modelVersions: List[CivitModelVersion]
 
 
-Downloadable = Union[CivitFile | HuggingFile | UrlFile]
+Downloadable = Union[CivitFile, HuggingFile, UrlFile]

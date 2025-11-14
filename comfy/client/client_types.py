@@ -1,7 +1,9 @@
 import dataclasses
-from typing import List
+from typing import List, NamedTuple, Optional
 
-from typing_extensions import TypedDict, Literal, NotRequired, Dict
+from typing_extensions import TypedDict, Literal, NotRequired
+
+from ..component_model.executor_types import SendSyncEvent, SendSyncData
 
 
 class FileOutput(TypedDict, total=False):
@@ -21,4 +23,10 @@ class Output(TypedDict, total=False):
 @dataclasses.dataclass
 class V1QueuePromptResponse:
     urls: List[str]
-    outputs: Dict[str, Output]
+    outputs: dict[str, Output]
+
+
+class ProgressNotification(NamedTuple):
+    event: SendSyncEvent
+    data: SendSyncData
+    sid: Optional[str] = None

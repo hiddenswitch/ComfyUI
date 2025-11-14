@@ -12,23 +12,26 @@ import socket
 import struct
 import sys
 import traceback
+import typing
 import urllib
 import uuid
 from asyncio import Future, AbstractEventLoop, Task
 from enum import Enum
 from io import BytesIO
 from posixpath import join as urljoin
-from typing import List, Optional
+from typing import List, Optional, Union
 from urllib.parse import quote, urlencode
 
 import aiofiles
 import aiohttp
-from PIL import Image
+from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
 from aiohttp import web
 from can_ada import URL, parse as urlparse  # pylint: disable=no-name-in-module
 from typing_extensions import NamedTuple
 
+from comfy_api import feature_flags
+from comfy_api.internal import _ComfyNodeInternal
 from .latent_preview_image_encoding import encode_preview_image
 from .. import __version__
 from .. import interruption, model_management
@@ -44,7 +47,9 @@ from ..client.client_types import FileOutput
 from ..cmd import execution
 from ..cmd import folder_paths
 from ..component_model.abstract_prompt_queue import AbstractPromptQueue, AsyncAbstractPromptQueue
-from ..component_model.executor_types import ExecutorToClientProgress, StatusMessage, QueueInfo, ExecInfo
+from ..component_model.encode_text_for_progress import encode_text_for_progress
+from ..component_model.executor_types import ExecutorToClientProgress, StatusMessage, QueueInfo, ExecInfo, \
+    UnencodedPreviewImageMessage, PreviewImageWithMetadataMessage
 from ..component_model.file_output_path import file_output_path
 from ..component_model.queue_types import QueueItem, HistoryEntry, BinaryEventTypes, TaskInvocation, ExecutionError, \
     ExecutionStatus
@@ -52,6 +57,7 @@ from ..digest import digest
 from ..images import open_image
 from ..model_management import get_torch_device, get_torch_device_name, get_total_memory, get_free_memory, torch_version
 from ..nodes.package_typing import ExportedNodes
+from ..progress_types import PreviewImageMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +66,9 @@ class HeuristicPath(NamedTuple):
     filename_heuristic: str
     abs_path: str
 
+
+# Import cache control middleware
+from ..middleware.cache_middleware import cache_control
 
 async def send_socket_catch_exception(function, message):
     try:
@@ -72,11 +81,25 @@ def get_comfyui_version():
     return __version__
 
 
+# Track deprecated paths that have been warned about to only warn once per file
+_deprecated_paths_warned = set()
+
 @web.middleware
-async def cache_control(request: web.Request, handler):
+async def deprecation_warning(request: web.Request, handler):
+    """Middleware to warn about deprecated frontend API paths"""
+    path = request.path
+
+    if path.startswith("/scripts/ui") or path.startswith("/extensions/core/"):
+        # Only warn once per unique file path
+        if path not in _deprecated_paths_warned:
+            _deprecated_paths_warned.add(path)
+            logging.warning(
+                f"[DEPRECATION WARNING] Detected import of deprecated legacy API: {path}. "
+                f"This is likely caused by a custom node extension using outdated APIs. "
+                f"Please update your extensions or contact the extension author for an updated version."
+            )
+
     response: web.Response = await handler(request)
-    if request.path.endswith('.js') or request.path.endswith('.css') or request.path.endswith('index.json'):
-        response.headers.setdefault('Cache-Control', 'no-cache')
     return response
 
 
@@ -93,6 +116,24 @@ async def compress_body(request: web.Request, handler):
     return response
 
 
+@web.middleware
+async def opentelemetry_middleware(request: web.Request, handler):
+    """Middleware to extract and propagate OpenTelemetry context from request headers"""
+    from opentelemetry import propagate, context
+
+    # Extract OpenTelemetry context from headers
+    carrier = dict(request.headers)
+    ctx = propagate.extract(carrier)
+
+    # Attach context and execute handler
+    token = context.attach(ctx)
+    try:
+        response = await handler(request)
+        return response
+    finally:
+        context.detach(token)
+
+
 def create_cors_middleware(allowed_origin: str):
     @web.middleware
     async def cors_middleware(request: web.Request, handler):
@@ -104,7 +145,7 @@ def create_cors_middleware(allowed_origin: str):
 
         response.headers['Access-Control-Allow-Origin'] = allowed_origin
         response.headers['Access-Control-Allow-Methods'] = 'POST, GET, DELETE, PUT, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, traceparent, tracestate'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response
 
@@ -192,7 +233,7 @@ class PromptServer(ExecutorToClientProgress):
         self.internal_routes = InternalRoutes(self)
         # todo: this is probably read by custom nodes elsewhere
         self.supports: List[str] = ["custom_nodes_from_web"]
-        self.prompt_queue: AbstractPromptQueue | AsyncAbstractPromptQueue | None = None
+        self.prompt_queue: AbstractPromptQueue | AsyncAbstractPromptQueue | None = execution.PromptQueue(self)
         self.loop: AbstractEventLoop = loop
         self.messages: asyncio.Queue = asyncio.Queue()
         self.client_session: Optional[aiohttp.ClientSession] = None
@@ -201,7 +242,7 @@ class PromptServer(ExecutorToClientProgress):
         self._external_address: Optional[str] = None
         self.background_tasks: dict[str, Task] = dict()
 
-        middlewares = [cache_control]
+        middlewares = [opentelemetry_middleware, cache_control, deprecation_warning]
         if args.enable_compress_response_body:
             middlewares.append(compress_body)
 
@@ -215,6 +256,7 @@ class PromptServer(ExecutorToClientProgress):
                                                     handler_args={'max_field_size': 16380},
                                                     middlewares=middlewares)
         self.sockets = dict()
+        self._sockets_metadata = dict()
         self.web_root = (
             FrontendManager.init_frontend(args.front_end_version)
             if args.front_end_root is None
@@ -240,19 +282,50 @@ class PromptServer(ExecutorToClientProgress):
             else:
                 sid = uuid.uuid4().hex
 
+            # Store WebSocket for backward compatibility
             self.sockets[sid] = ws
+            # Store metadata separately
+            self.sockets_metadata[sid] = {"feature_flags": {}}
 
             try:
                 # Send initial state to the new client
-                await self.send("status", {"status": self.get_queue_info(), 'sid': sid}, sid)
+                await self.send("status", {"status": self.get_queue_info(), "sid": sid}, sid)
                 # On reconnect if we are the currently executing client send the current node
                 if self.client_id == sid and self.last_node_id is not None:
-                    await self.send("executing", {"node": self.last_node_id}, sid)
+                    await self.send("executing", {"node": self.last_node_id}, sid)  # Flag to track if we've received the first message
+                first_message = True
                 async for msg in ws:
                     if msg.type == aiohttp.WSMsgType.ERROR:
                         logger.warning('ws connection closed with exception %s' % ws.exception())
+                    elif msg.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            data = json.loads(msg.data)
+                            # Check if first message is feature flags
+                            if first_message and data.get("type") == "feature_flags":
+                                # Store client feature flags
+                                client_flags = data.get("data", {})
+                                self.sockets_metadata[sid]["feature_flags"] = client_flags
+
+                                # Send server feature flags in response
+                                await self.send(
+                                    "feature_flags",
+                                    feature_flags.get_server_features(),
+                                    sid,
+                                )
+
+                                logger.debug(
+                                    f"Feature flags negotiated for client {sid}: {client_flags}"
+                                )
+                            first_message = False
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                f"Invalid JSON received from client {sid}: {msg.data}"
+                            )
+                        except Exception as e:
+                            logger.error(f"Error processing WebSocket message: {e}")
             finally:
                 self.sockets.pop(sid, None)
+                self.sockets_metadata.pop(sid, None)
             return ws
 
         @routes.get("/")
@@ -318,7 +391,6 @@ class PromptServer(ExecutorToClientProgress):
                     a.update(f.read())
                     b.update(image.file.read())
                     image.file.seek(0)
-                    f.close()
                 return a.hexdigest() == b.hexdigest()
             return False
 
@@ -430,6 +502,7 @@ class PromptServer(ExecutorToClientProgress):
         async def view_image(request):
             if "filename" in request.rel_url.query:
                 filename = request.rel_url.query["filename"]
+                # todo: do we ever need annotated filenames support on this?
 
                 if not filename:
                     return web.Response(status=400)
@@ -510,9 +583,8 @@ class PromptServer(ExecutorToClientProgress):
                         # Get content type from mimetype, defaulting to 'application/octet-stream'
                         content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
 
-                        # For security, force certain extensions to download instead of display
-                        file_extension = os.path.splitext(filename)[1].lower()
-                        if file_extension in {'.html', '.htm', '.js', '.css'}:
+                        # For security, force certain mimetypes to download instead of display
+                        if content_type in {'text/html', 'text/html-sandboxed', 'application/xhtml+xml', 'text/javascript', 'text/css'}:
                             content_type = 'application/octet-stream'  # Forces download
 
                         return web.FileResponse(
@@ -556,6 +628,9 @@ class PromptServer(ExecutorToClientProgress):
             ram_free = model_management.get_free_memory(cpu_device)
             vram_total, torch_vram_total = get_total_memory(device, torch_total_too=True)
             vram_free, torch_vram_free = get_free_memory(device, torch_free_too=True)
+            required_frontend_version = FrontendManager.get_required_frontend_version()
+            installed_templates_version = FrontendManager.get_installed_templates_version()
+            required_templates_version = FrontendManager.get_required_templates_version()
 
             system_stats = {
                 "system": {
@@ -563,6 +638,9 @@ class PromptServer(ExecutorToClientProgress):
                     "ram_total": ram_total,
                     "ram_free": ram_free,
                     "comfyui_version": __version__,
+                    "required_frontend_version": required_frontend_version,
+                    "installed_templates_version": installed_templates_version,
+                    "required_templates_version": required_templates_version,
                     "python_version": sys.version,
                     "pytorch_version": torch_version,
                     "embedded_python": os.path.split(os.path.split(sys.executable)[0])[1] == "python_embeded",
@@ -582,12 +660,18 @@ class PromptServer(ExecutorToClientProgress):
             }
             return web.json_response(system_stats)
 
+        @routes.get("/features")
+        async def get_features(request):
+            return web.json_response(feature_flags.get_server_features())
+
         @routes.get("/prompt")
         async def get_prompt(request):
             return web.json_response(self.get_queue_info())
 
         def node_info(node_class):
             obj_class = self.nodes.NODE_CLASS_MAPPINGS[node_class]
+            if issubclass(obj_class, _ComfyNodeInternal):
+                return obj_class.GET_NODE_INFO_V1()
             info = {}
             info['input'] = obj_class.INPUT_TYPES()
             info['input_order'] = {key: list(value.keys()) for (key, value) in obj_class.INPUT_TYPES().items()}
@@ -615,6 +699,9 @@ class PromptServer(ExecutorToClientProgress):
                 info['deprecated'] = True
             if getattr(obj_class, "EXPERIMENTAL", False):
                 info['experimental'] = True
+
+            if hasattr(obj_class, 'API_NODE'):
+                info['api_node'] = obj_class.API_NODE
             return info
 
         @routes.get("/object_info")
@@ -641,7 +728,14 @@ class PromptServer(ExecutorToClientProgress):
             max_items = request.rel_url.query.get("max_items", None)
             if max_items is not None:
                 max_items = int(max_items)
-            return web.json_response(self.prompt_queue.get_history(max_items=max_items))
+
+            offset = request.rel_url.query.get("offset", None)
+            if offset is not None:
+                offset = int(offset)
+            else:
+                offset = -1
+
+            return web.json_response(self.prompt_queue.get_history(max_items=max_items, offset=offset))
 
         @routes.get("/history/{prompt_id}")
         async def get_history_prompt_id(request):
@@ -651,7 +745,7 @@ class PromptServer(ExecutorToClientProgress):
         @routes.get("/queue")
         async def get_queue(request):
             queue_info = {}
-            current_queue = self.prompt_queue.get_current_queue()
+            current_queue = self.prompt_queue.get_current_queue_volatile()
             queue_info['queue_running'] = current_queue[0]
             queue_info['queue_pending'] = current_queue[1]
             return web.json_response(queue_info)
@@ -673,7 +767,13 @@ class PromptServer(ExecutorToClientProgress):
 
             if "prompt" in json_data:
                 prompt = json_data["prompt"]
-                valid = execution.validate_prompt(prompt)
+                prompt_id = str(json_data.get("prompt_id", uuid.uuid4()))
+
+                partial_execution_targets = None
+                if "partial_execution_targets" in json_data:
+                    partial_execution_targets = json_data["partial_execution_targets"]
+
+                valid = await execution.validate_prompt(prompt_id, prompt, partial_execution_targets)
                 extra_data = {}
                 if "extra_data" in json_data:
                     extra_data = json_data["extra_data"]
@@ -681,7 +781,6 @@ class PromptServer(ExecutorToClientProgress):
                 if "client_id" in json_data:
                     extra_data["client_id"] = json_data["client_id"]
                 if valid[0]:
-                    prompt_id = str(uuid.uuid4())
                     outputs_to_execute = valid[2]
                     self.prompt_queue.put(
                         QueueItem(queue_tuple=(number, prompt_id, prompt, extra_data, outputs_to_execute),
@@ -716,7 +815,34 @@ class PromptServer(ExecutorToClientProgress):
 
         @routes.post("/interrupt")
         async def post_interrupt(request):
-            interruption.interrupt_current_processing()
+            try:
+                json_data = await request.json()
+            except json.JSONDecodeError:
+                json_data = {}
+
+            # Check if a specific prompt_id was provided for targeted interruption
+            prompt_id = json_data.get('prompt_id')
+            if prompt_id:
+                currently_running, _ = self.prompt_queue.get_current_queue()
+
+                # Check if the prompt_id matches any currently running prompt
+                should_interrupt = False
+                for item in currently_running:
+                    # item structure: (number, prompt_id, prompt, extra_data, outputs_to_execute)
+                    if item[1] == prompt_id:
+                        logger.debug(f"Interrupting prompt {prompt_id}")
+                        should_interrupt = True
+                        break
+
+                if should_interrupt:
+                    interruption.interrupt_current_processing()
+                else:
+                    logger.debug(f"Prompt {prompt_id} is not currently running, skipping interrupt")
+            else:
+                # No prompt_id provided, do a global interrupt
+                logger.debug("Global interrupt (no prompt_id specified)")
+
+                interruption.interrupt_current_processing()
             return web.Response(status=200)
 
         @routes.post("/free")
@@ -759,9 +885,19 @@ class PromptServer(ExecutorToClientProgress):
                     return web.json_response(status=404)
             elif prompt_id in history_items:
                 history_entry = history_items[prompt_id]
+                # Check if execution resulted in an error
+                if "status" in history_entry:
+                    status = history_entry["status"]
+                    if isinstance(status, dict) and status.get("status_str") == "error":
+                        # Return ExecutionStatusAsDict format with status 500, matching POST /api/v1/prompts behavior
+                        return web.Response(
+                            body=json.dumps(status),
+                            status=500,
+                            content_type="application/json"
+                        )
                 return web.json_response(history_entry["outputs"])
             else:
-                return web.json_response(status=500)
+                return web.Response(status=404, reason="prompt not found in expected state")
 
         @routes.post("/api/v1/prompts")
         async def post_api_prompt(request: web.Request) -> web.Response | web.FileResponse:
@@ -769,9 +905,13 @@ class PromptServer(ExecutorToClientProgress):
             if accept == '*/*':
                 accept = "application/json"
             content_type = request.headers.get("content-type", "application/json")
-            preferences = request.headers.get("prefer", "") + request.query.get("prefer", "") + " " + content_type
+            preferences = request.headers.get("prefer", "") + request.query.get("prefer", "") + " " + content_type + " " + accept
+
+            # handle media type parameters like "application/json+respond-async"
             if "+" in content_type:
                 content_type = content_type.split("+")[0]
+            if "+" in accept:
+                accept = accept.split("+")[0]
 
             wait = not "respond-async" in preferences
 
@@ -815,8 +955,8 @@ class PromptServer(ExecutorToClientProgress):
                 return web.Response(status=400, reason="no prompt was specified")
 
             content_digest = digest(prompt_dict)
-
-            valid = execution.validate_prompt(prompt_dict)
+            task_id = str(uuid.uuid4())
+            valid = await execution.validate_prompt(task_id, prompt_dict)
             if not valid[0]:
                 return web.Response(status=400, content_type="application/json", body=json.dumps(valid[1]))
 
@@ -828,7 +968,6 @@ class PromptServer(ExecutorToClientProgress):
             completed: Future[TaskInvocation | dict] = self.loop.create_future()
             # todo: actually implement idempotency keys
             # we would need some kind of more durable, distributed task queue
-            task_id = str(uuid.uuid4())
             item = QueueItem(queue_tuple=(number, task_id, prompt_dict, {}, valid[2]), completed=completed)
 
             try:
@@ -840,13 +979,13 @@ class PromptServer(ExecutorToClientProgress):
                         if result is None:
                             return web.Response(body="the queue is shutting down", status=503)
                     else:
-                        return await self._schedule_background_task_with_web_response(fut, task_id)
+                        return self._schedule_background_task_with_web_response(fut, task_id)
                 else:
                     self.prompt_queue.put(item)
                     if wait:
                         await completed
                     else:
-                        return await self._schedule_background_task_with_web_response(completed, task_id)
+                        return self._schedule_background_task_with_web_response(completed, task_id)
                     task_invocation_or_dict: TaskInvocation | dict = completed.result()
                     if isinstance(task_invocation_or_dict, dict):
                         result = TaskInvocation(item_id=item.prompt_id, outputs=task_invocation_or_dict, status=ExecutionStatus("success", True, []))
@@ -858,7 +997,8 @@ class PromptServer(ExecutorToClientProgress):
                 return web.Response(body=str(ex), status=500)
 
             if result.status is not None and result.status.status_str == "error":
-                return web.Response(body=json.dumps(result.status._asdict()), status=500, content_type="application/json")
+                status_dict = result.status.as_dict(error_details=result.error_details)
+                return web.Response(body=json.dumps(status_dict), status=500, content_type="application/json")
             # find images and read them
             output_images: List[FileOutput] = []
             for node_id, node in result.outputs.items():
@@ -931,7 +1071,7 @@ class PromptServer(ExecutorToClientProgress):
             prompt = last_history_item['prompt'][2]
             return web.json_response(prompt, status=200)
 
-    async def _schedule_background_task_with_web_response(self, fut, task_id):
+    def _schedule_background_task_with_web_response(self, fut, task_id):
         task = asyncio.create_task(fut, name=task_id)
         self.background_tasks[task_id] = task
         task.add_done_callback(lambda _: self.background_tasks.pop(task_id))
@@ -960,6 +1100,14 @@ class PromptServer(ExecutorToClientProgress):
         self.client_session = aiohttp.ClientSession(timeout=timeout)
 
     def add_routes(self):
+        # a mitigation for vanilla comfyui custom nodes that are stateful and add routes to a global
+        # prompt server instance. this is not a recommended pattern, but this mitigation is here to
+        # support it
+        from ..nodes.vanilla_node_importing import prompt_server_instance_routes
+        for route in prompt_server_instance_routes.routes:
+            self.routes.route(route.method, route.path)(route.handler)
+        prompt_server_instance_routes.clear()
+
         self.user_manager.add_routes(self.routes)
         self.model_file_manager.add_routes(self.routes)
         # todo: needs to use module directories
@@ -990,6 +1138,13 @@ class PromptServer(ExecutorToClientProgress):
                 web.static('/templates', workflow_templates_path)
             ])
 
+        # Serve embedded documentation from the package
+        embedded_docs_path = FrontendManager.embedded_docs_path()
+        if embedded_docs_path:
+            self.app.add_routes([
+                web.static('/docs', embedded_docs_path)
+            ])
+
         self.app.add_routes([
             web.static('/', self.web_root, follow_symlinks=True),
         ])
@@ -1001,15 +1156,20 @@ class PromptServer(ExecutorToClientProgress):
         prompt_info['exec_info'] = exec_info
         return prompt_info
 
-    async def send(self, event, data, sid=None):
+    async def send(self, event, data: UnencodedPreviewImageMessage | PreviewImageWithMetadataMessage | bytes | bytearray | dict, sid=None):
         if event == BinaryEventTypes.UNENCODED_PREVIEW_IMAGE:
             await self.send_image(data, sid=sid)
+        elif event == BinaryEventTypes.PREVIEW_IMAGE_WITH_METADATA:
+            # data is (preview_image, metadata)
+            data: PreviewImageWithMetadataMessage
+            preview_image, metadata = data
+            await self.send_image_with_metadata(preview_image, metadata, sid=sid)
         elif isinstance(data, (bytes, bytearray)):
             await self.send_bytes(event, data, sid)
         else:
             await self.send_json(event, data, sid)
 
-    def encode_bytes(self, event: int | Enum | str, data):
+    def encode_bytes(self, event: int | Enum | str, data: bytes | bytearray | typing.Sequence[int]):
         # todo: investigate what is propagating these spurious, string-repr'd previews
         if event == repr(BinaryEventTypes.UNENCODED_PREVIEW_IMAGE):
             event = BinaryEventTypes.UNENCODED_PREVIEW_IMAGE.value
@@ -1025,12 +1185,52 @@ class PromptServer(ExecutorToClientProgress):
         message.extend(data)
         return message
 
-    async def send_image(self, image_data, sid=None):
+    async def send_image(self, image_data: UnencodedPreviewImageMessage, sid=None):
         image_type = image_data[0]
         image = image_data[1]
         max_size = image_data[2]
         preview_bytes = encode_preview_image(image, image_type, max_size)
         await self.send_bytes(BinaryEventTypes.PREVIEW_IMAGE, preview_bytes, sid=sid)
+
+    async def send_image_with_metadata(self, image_data: UnencodedPreviewImageMessage, metadata: Optional[PreviewImageMetadata] = None, sid=None):
+        try:
+            image_type = image_data[0]
+            image = image_data[1]
+            max_size = image_data[2]
+        except Exception as exc_info:
+            logger.warning(f"tried to send_image_with_metadata but an error occurred, aboring send, image_data={image_data} metadata={metadata} sid={sid}", exc_info=exc_info)
+            return
+        if max_size is not None:
+            if hasattr(Image, 'Resampling'):
+                resampling = Image.Resampling.BILINEAR
+            else:
+                resampling = Image.Resampling.LANCZOS
+
+            image = ImageOps.contain(image, (max_size, max_size), resampling)
+
+        mimetype = "image/png" if image_type == "PNG" else "image/jpeg"
+
+        # Prepare metadata
+        if metadata is None:
+            metadata = {}
+        metadata["image_type"] = mimetype
+
+        # Serialize metadata as JSON
+        metadata_json = json.dumps(metadata).encode('utf-8')
+        metadata_length = len(metadata_json)
+
+        # Prepare image data
+        bytesIO = BytesIO()
+        image.save(bytesIO, format=image_type, quality=95, compress_level=1)
+        image_bytes = bytesIO.getvalue()
+
+        # Combine metadata and image
+        combined_data = bytearray()
+        combined_data.extend(struct.pack(">I", metadata_length))
+        combined_data.extend(metadata_json)
+        combined_data.extend(image_bytes)
+
+        await self.send_bytes(BinaryEventTypes.PREVIEW_IMAGE_WITH_METADATA, combined_data, sid=sid)
 
     async def send_bytes(self, event, data, sid=None):
         message = self.encode_bytes(event, data)
@@ -1042,7 +1242,7 @@ class PromptServer(ExecutorToClientProgress):
         elif sid in self.sockets:
             await send_socket_catch_exception(self.sockets[sid].send_bytes, message)
 
-    async def send_json(self, event, data, sid=None):
+    async def send_json(self, event, data: dict, sid=None):
         message = {"type": event, "data": data}
 
         if sid is None:
@@ -1078,6 +1278,9 @@ class PromptServer(ExecutorToClientProgress):
         runner = web.AppRunner(self.app, access_log=None, keepalive_timeout=900)
         await runner.setup()
 
+        if 'tls_keyfile' in args or 'tls_certfile' in args:
+            logger.warning("Use caddy instead of aiohttp to serve https by setting up a reverse proxy. See README.md")
+
         def is_ipv4(address: str, *args):
             try:
                 parsed = ipaddress.ip_address(address)
@@ -1104,7 +1307,7 @@ class PromptServer(ExecutorToClientProgress):
         if verbose:
             logger.info(f"Server ready. To see the GUI go to: http://{address_print}:{port}")
         if call_on_start is not None:
-            call_on_start(address, port)
+            call_on_start("http", address, port)
 
     def add_on_prompt_handler(self, handler):
         self.on_prompt_handlers.append(handler)
@@ -1126,3 +1329,18 @@ class PromptServer(ExecutorToClientProgress):
     @classmethod
     def get_too_busy_queue_size(cls):
         return args.max_queue_size
+
+    def send_progress_text(
+            self, text: Union[bytes, bytearray, str], node_id: str, sid=None
+    ):
+        message = encode_text_for_progress(node_id, text)
+
+        self.send_sync(BinaryEventTypes.TEXT, message, sid)
+
+    @property
+    def sockets_metadata(self):
+        return self._sockets_metadata
+
+    @sockets_metadata.setter
+    def sockets_metadata(self, value):
+        self._sockets_metadata = value

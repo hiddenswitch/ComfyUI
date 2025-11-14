@@ -1,17 +1,18 @@
 from __future__ import annotations  # for Python 3.7-3.9
 
 import concurrent.futures
-import typing
 from enum import Enum
-from typing import Optional, Literal, Protocol, Union, NamedTuple, List
+from typing import Optional, Literal, Protocol, Union, NamedTuple, List, runtime_checkable, Iterable, Dict, Any
 
 import PIL.Image
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired, TypedDict, Never
 
+from .encode_text_for_progress import encode_text_for_progress
 from .outputs_types import OutputsDict
 from .queue_types import BinaryEventTypes
 from ..cli_args_types import Configuration
 from ..nodes.package_typing import InputTypeSpec
+from ..progress_types import PreviewImageMetadata
 
 
 class ExecInfo(TypedDict):
@@ -66,7 +67,7 @@ class ExecutionErrorMessage(TypedDict):
     exception_message: str
     exception_type: str
     traceback: list[str]
-    current_inputs: list[typing.Never] | dict[str, FormattedValue]
+    current_inputs: list[Never] | dict[str, FormattedValue]
     current_outputs: list[str]
 
 
@@ -74,15 +75,44 @@ class DependencyExecutionErrorMessage(TypedDict):
     node_id: str
     exception_message: str
     exception_type: Literal["graph.DependencyCycleError"]
-    traceback: list[typing.Never]
-    current_inputs: list[typing.Never]
+    traceback: list[Never]
+    current_inputs: list[Never]
 
+
+class ActiveNodeProgressState(TypedDict, total=True):
+    value: float
+    max: float
+    # a string value from the NodeState enum
+    state: Literal["pending", "running", "finished", "error"]
+    node_id: str
+    prompt_id: str
+    display_node_id: str
+    parent_node_id: str
+    real_node_id: str
+
+
+class ProgressStateMessage(TypedDict, total=True):
+    prompt_id: str
+    nodes: dict[str, ActiveNodeProgressState]
+
+PreviewImageWithMetadataMessage = tuple[UnencodedPreviewImageMessage, PreviewImageMetadata]
 
 ExecutedMessage = ExecutingMessage
 
-SendSyncEvent = Union[Literal["status", "execution_error", "executing", "progress", "executed"], BinaryEventTypes, None]
+SendSyncEvent = Union[Literal["status", "execution_error", "executing", "progress", "executed", "progress_state"], BinaryEventTypes, None]
 
-SendSyncData = Union[StatusMessage, ExecutingMessage, DependencyExecutionErrorMessage, ExecutionErrorMessage, ExecutionInterruptedMessage, ProgressMessage, UnencodedPreviewImageMessage, bytes, bytearray, str, None]
+SendSyncData = Union[ProgressStateMessage, StatusMessage, ExecutingMessage, DependencyExecutionErrorMessage, ExecutionErrorMessage, ExecutionInterruptedMessage, ProgressMessage, UnencodedPreviewImageMessage, PreviewImageWithMetadataMessage, bytes, bytearray, str, None]
+
+
+class SocketsMetadata(TypedDict, total=True):
+    feature_flags: dict[str, Any]
+
+
+class DefaultSocketsMetadata(TypedDict, total=True):
+    __unimplemented: Literal[True]
+
+
+SocketsMetadataType = dict[str, SocketsMetadata] | DefaultSocketsMetadata
 
 
 class ExecutorToClientProgress(Protocol):
@@ -100,12 +130,27 @@ class ExecutorToClientProgress(Protocol):
     last_prompt_id: Optional[str]
 
     @property
-    def receive_all_progress_notifications(self):
+    def receive_all_progress_notifications(self) -> bool:
         """
         Set to true if this should receive progress bar updates, in addition to the standard execution lifecycle messages
         :return:
         """
         return False
+
+    @receive_all_progress_notifications.setter
+    def receive_all_progress_notifications(self, value: bool):
+        pass
+
+    @property
+    def sockets_metadata(self) -> SocketsMetadataType:
+        """
+        Metadata about what the socket supports
+
+        Currently used only by the frontend
+
+        :return: in the abstract base class, a static object that is used by the web server to ignore this; in the real classes, sometimes information about connected users
+        """
+        return {"__unimplemented": True}
 
     def send_sync(self,
                   event: SendSyncEvent,
@@ -121,10 +166,22 @@ class ExecutorToClientProgress(Protocol):
         """
         pass
 
+    def send_progress_text(self, text: Union[bytes, bytearray, str], node_id: str, sid=None):
+        """
+        Send text to the client
+        :param text: the text to send
+        :param node_id: the node this belongs to
+        :param sid: websocket ID / the client ID to be responding to
+        :return:
+        """
+        message = encode_text_for_progress(node_id, text)
+
+        self.send_sync(BinaryEventTypes.TEXT, message, sid)
+
     def queue_updated(self, queue_remaining: Optional[int] = None):
         """
         Indicates that the local client's queue has been updated
-        :return:
+        :return: nothing
         """
         pass
 
@@ -139,19 +196,18 @@ class ValidationErrorExtraInfoDict(TypedDict, total=False):
     dependent_outputs: NotRequired[List[str]]
     class_type: NotRequired[str]
     input_name: NotRequired[str]
-    input_config: NotRequired[typing.Dict[str, InputTypeSpec]]
-    received_value: NotRequired[typing.Any]
+    input_config: NotRequired[Dict[str, InputTypeSpec]]
+    received_value: NotRequired[Any]
     linked_node: NotRequired[str]
-    traceback: NotRequired[list[str]]
     exception_message: NotRequired[str]
-    exception_type: NotRequired[str]
+    node_errors: NotRequired[Dict[str, 'NodeErrorsDictValue']]
 
 
 class ValidationErrorDict(TypedDict):
     type: str
     message: str
     details: str
-    extra_info: list[typing.Never] | ValidationErrorExtraInfoDict
+    extra_info: list[Never] | ValidationErrorExtraInfoDict
 
 
 class NodeErrorsDictValue(TypedDict, total=False):
@@ -160,14 +216,14 @@ class NodeErrorsDictValue(TypedDict, total=False):
     class_type: str
 
 
-class ValidationTuple(typing.NamedTuple):
+class ValidationTuple(NamedTuple):
     valid: bool
     error: Optional[ValidationErrorDict | DependencyExecutionErrorMessage]
     good_output_node_ids: List[str]
-    node_errors: list[typing.Never] | typing.Dict[str, NodeErrorsDictValue]
+    node_errors: list[Never] | Dict[str, NodeErrorsDictValue]
 
 
-class ValidateInputsTuple(typing.NamedTuple):
+class ValidateInputsTuple(NamedTuple):
     valid: bool
     errors: List[ValidationErrorDict]
     unique_id: str
@@ -186,7 +242,7 @@ class RecursiveExecutionErrorDetails(TypedDict, total=True):
     current_outputs: NotRequired[dict[str, list[list[FormattedValue]]]]
 
 
-class RecursiveExecutionTuple(typing.NamedTuple):
+class RecursiveExecutionTuple(NamedTuple):
     valid: ExecutionResult
     error_details: Optional[RecursiveExecutionErrorDetails | RecursiveExecutionErrorDetailsInterrupted]
     exc_info: Optional[Exception]
@@ -231,3 +287,9 @@ class Executor(Protocol):
 
 
 ExecutePromptArgs = tuple[dict, str, str, dict, ExecutorToClientProgress | None, Configuration | None]
+
+
+@runtime_checkable
+class ComboOptions(Protocol):
+    def view_for_validation(self) -> list[str]:
+        ...

@@ -1,0 +1,47 @@
+name: Build and Publish Docker Image (AMD)
+on:
+  push:
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: hiddenswitch/comfyui
+jobs:
+  build:
+    runs-on: "ubuntu-latest"
+    environment: Testing
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest-rocm,enable={{is_default_branch}}
+            type=sha,prefix=,suffix=-rocm
+            type=match,pattern=v?(\d+\.\d+\.\d+\.\d+),group=1,suffix=-rocm
+            type=match,pattern=v?(\d+\.\d+\.\d+),group=1,suffix=-rocm
+            type=match,pattern=v?(\d+\.\d+),group=1,suffix=-rocm
+      - name: Build and push ROCm (AMD) image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./amd.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

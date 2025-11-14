@@ -18,13 +18,17 @@
 from __future__ import annotations
 
 import logging
+from typing import Union
 
 import torch
 
 from . import model_base
 from . import model_management
 from . import utils
+from . import weight_adapter
 from .lora_types import PatchDict, PatchOffset, PatchConversionFunction, PatchType, ModelPatchesDictValue
+
+logger = logging.getLogger(__name__)
 
 LORA_CLIP_MAP = {
     "mlp.fc1": "mlp_fc1",
@@ -36,7 +40,7 @@ LORA_CLIP_MAP = {
 }
 
 
-def load_lora(lora, to_load, log_missing=True) -> PatchDict:
+def load_lora(lora, to_load, log_missing=True, lora_name=None) -> PatchDict:
     patch_dict: PatchDict = {}
     loaded_keys = set()
     for x in to_load:
@@ -52,133 +56,12 @@ def load_lora(lora, to_load, log_missing=True) -> PatchDict:
             dora_scale = lora[dora_scale_name]
             loaded_keys.add(dora_scale_name)
 
-        reshape_name = "{}.reshape_weight".format(x)
-        reshape = None
-        if reshape_name in lora.keys():
-            try:
-                reshape = lora[reshape_name].tolist()
-                loaded_keys.add(reshape_name)
-            except:
-                pass
-
-        regular_lora = "{}.lora_up.weight".format(x)
-        diffusers_lora = "{}_lora.up.weight".format(x)
-        diffusers2_lora = "{}.lora_B.weight".format(x)
-        diffusers3_lora = "{}.lora.up.weight".format(x)
-        mochi_lora = "{}.lora_B".format(x)
-        transformers_lora = "{}.lora_linear_layer.up.weight".format(x)
-        A_name = B_name = None
-
-        mid_name = None
-        if regular_lora in lora.keys():
-            A_name = regular_lora
-            B_name = "{}.lora_down.weight".format(x)
-            mid_name = "{}.lora_mid.weight".format(x)
-        elif diffusers_lora in lora.keys():
-            A_name = diffusers_lora
-            B_name = "{}_lora.down.weight".format(x)
-        elif diffusers2_lora in lora.keys():
-            A_name = diffusers2_lora
-            B_name = "{}.lora_A.weight".format(x)
-        elif diffusers3_lora in lora.keys():
-            A_name = diffusers3_lora
-            B_name = "{}.lora.down.weight".format(x)
-        elif mochi_lora in lora.keys():
-            A_name = mochi_lora
-            B_name = "{}.lora_A".format(x)
-        elif transformers_lora in lora.keys():
-            A_name = transformers_lora
-            B_name = "{}.lora_linear_layer.down.weight".format(x)
-
-        if A_name is not None:
-            mid = None
-            if mid_name is not None and mid_name in lora.keys():
-                mid = lora[mid_name]
-                loaded_keys.add(mid_name)
-            patch_dict[to_load[x]] = ("lora", (lora[A_name], lora[B_name], alpha, mid, dora_scale, reshape))
-            loaded_keys.add(A_name)
-            loaded_keys.add(B_name)
-
-        ######## loha
-        hada_w1_a_name = "{}.hada_w1_a".format(x)
-        hada_w1_b_name = "{}.hada_w1_b".format(x)
-        hada_w2_a_name = "{}.hada_w2_a".format(x)
-        hada_w2_b_name = "{}.hada_w2_b".format(x)
-        hada_t1_name = "{}.hada_t1".format(x)
-        hada_t2_name = "{}.hada_t2".format(x)
-        if hada_w1_a_name in lora.keys():
-            hada_t1 = None
-            hada_t2 = None
-            if hada_t1_name in lora.keys():
-                hada_t1 = lora[hada_t1_name]
-                hada_t2 = lora[hada_t2_name]
-                loaded_keys.add(hada_t1_name)
-                loaded_keys.add(hada_t2_name)
-
-            patch_dict[to_load[x]] = ("loha", (lora[hada_w1_a_name], lora[hada_w1_b_name], alpha, lora[hada_w2_a_name], lora[hada_w2_b_name], hada_t1, hada_t2, dora_scale))
-            loaded_keys.add(hada_w1_a_name)
-            loaded_keys.add(hada_w1_b_name)
-            loaded_keys.add(hada_w2_a_name)
-            loaded_keys.add(hada_w2_b_name)
-
-        ######## lokr
-        lokr_w1_name = "{}.lokr_w1".format(x)
-        lokr_w2_name = "{}.lokr_w2".format(x)
-        lokr_w1_a_name = "{}.lokr_w1_a".format(x)
-        lokr_w1_b_name = "{}.lokr_w1_b".format(x)
-        lokr_t2_name = "{}.lokr_t2".format(x)
-        lokr_w2_a_name = "{}.lokr_w2_a".format(x)
-        lokr_w2_b_name = "{}.lokr_w2_b".format(x)
-
-        lokr_w1 = None
-        if lokr_w1_name in lora.keys():
-            lokr_w1 = lora[lokr_w1_name]
-            loaded_keys.add(lokr_w1_name)
-
-        lokr_w2 = None
-        if lokr_w2_name in lora.keys():
-            lokr_w2 = lora[lokr_w2_name]
-            loaded_keys.add(lokr_w2_name)
-
-        lokr_w1_a = None
-        if lokr_w1_a_name in lora.keys():
-            lokr_w1_a = lora[lokr_w1_a_name]
-            loaded_keys.add(lokr_w1_a_name)
-
-        lokr_w1_b = None
-        if lokr_w1_b_name in lora.keys():
-            lokr_w1_b = lora[lokr_w1_b_name]
-            loaded_keys.add(lokr_w1_b_name)
-
-        lokr_w2_a = None
-        if lokr_w2_a_name in lora.keys():
-            lokr_w2_a = lora[lokr_w2_a_name]
-            loaded_keys.add(lokr_w2_a_name)
-
-        lokr_w2_b = None
-        if lokr_w2_b_name in lora.keys():
-            lokr_w2_b = lora[lokr_w2_b_name]
-            loaded_keys.add(lokr_w2_b_name)
-
-        lokr_t2 = None
-        if lokr_t2_name in lora.keys():
-            lokr_t2 = lora[lokr_t2_name]
-            loaded_keys.add(lokr_t2_name)
-
-        if (lokr_w1 is not None) or (lokr_w2 is not None) or (lokr_w1_a is not None) or (lokr_w2_a is not None):
-            patch_dict[to_load[x]] = ("lokr", (lokr_w1, lokr_w2, alpha, lokr_w1_a, lokr_w1_b, lokr_w2_a, lokr_w2_b, lokr_t2, dora_scale))
-
-        # glora
-        a1_name = "{}.a1.weight".format(x)
-        a2_name = "{}.a2.weight".format(x)
-        b1_name = "{}.b1.weight".format(x)
-        b2_name = "{}.b2.weight".format(x)
-        if a1_name in lora:
-            patch_dict[to_load[x]] = ("glora", (lora[a1_name], lora[a2_name], lora[b1_name], lora[b2_name], alpha, dora_scale))
-            loaded_keys.add(a1_name)
-            loaded_keys.add(a2_name)
-            loaded_keys.add(b1_name)
-            loaded_keys.add(b2_name)
+        for adapter_cls in weight_adapter.adapters:
+            adapter = adapter_cls.load(x, lora, alpha, dora_scale, loaded_keys)
+            if adapter is not None:
+                patch_dict[to_load[x]] = adapter
+                loaded_keys.update(adapter.loaded_keys)
+                continue
 
         w_norm_name = "{}.w_norm".format(x)
         b_norm_name = "{}.b_norm".format(x)
@@ -211,9 +94,10 @@ def load_lora(lora, to_load, log_missing=True) -> PatchDict:
             loaded_keys.add(set_weight_name)
 
     if log_missing:
-        for x in lora.keys():
-            if x not in loaded_keys:
-                logging.warning("lora key not loaded: {}".format(x))
+        not_loaded_keys = [x for x in lora.keys() if x not in loaded_keys]
+        n_not_loaded_keys = len(not_loaded_keys)
+        if n_not_loaded_keys > 0:
+            logger.warning(f"[{lora_name}] lora keys not loaded ({n_not_loaded_keys} / {len(loaded_keys) + n_not_loaded_keys}): {not_loaded_keys}")
 
     return patch_dict
 
@@ -389,6 +273,10 @@ def model_lora_keys_unet(model, key_map=None):
                 key_map["transformer.{}".format(k[:-len(".weight")])] = to  # simpletrainer and probably regular diffusers flux lora format
                 key_map["lycoris_{}".format(k[:-len(".weight")].replace(".", "_"))] = to  # simpletrainer lycoris
                 key_map["lora_transformer_{}".format(k[:-len(".weight")].replace(".", "_"))] = to  # onetrainer
+        for k in sdk:
+            hidden_size = model.model_config.unet_config.get("hidden_size", 0)
+            if k.endswith(".weight") and ".linear1." in k:
+                key_map["{}".format(k.replace(".linear1.weight", ".linear1_qkv"))] = (k, (0, 0, hidden_size * 3))
 
     if isinstance(model, model_base.GenmoMochi):
         for k in sdk:
@@ -408,31 +296,40 @@ def model_lora_keys_unet(model, key_map=None):
                 key_map["transformer.{}".format(key_lora)] = k
                 key_map["diffusion_model.{}".format(key_lora)] = k  # Old loras
 
+    if isinstance(model, model_base.HiDream):
+        for k in sdk:
+            if k.startswith("diffusion_model."):
+                if k.endswith(".weight"):
+                    key_lora = k[len("diffusion_model."):-len(".weight")]
+                    key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = k  # SimpleTuner lycoris format
+                    key_map["transformer.{}".format(key_lora)] = k  # SimpleTuner regular format
+
+    if isinstance(model, model_base.ACEStep):
+        for k in sdk:
+            if k.startswith("diffusion_model.") and k.endswith(".weight"):  # Official ACE step lora format
+                key_lora = k[len("diffusion_model."):-len(".weight")]
+                key_map["{}".format(key_lora)] = k
+
+    if isinstance(model, model_base.Omnigen2):
+        for k in sdk:
+            if k.startswith("diffusion_model.") and k.endswith(".weight"):
+                key_lora = k[len("diffusion_model."):-len(".weight")]
+                key_map["{}".format(key_lora)] = k
+
+    if isinstance(model, model_base.QwenImage):
+        for k in sdk:
+            if k.startswith("diffusion_model.") and k.endswith(".weight"):  # QwenImage lora format
+                key_lora = k[len("diffusion_model."):-len(".weight")]
+                # Direct mapping for transformer_blocks format (QwenImage LoRA format)
+                key_map["{}".format(key_lora)] = k
+                # Support transformer prefix format
+                key_map["transformer.{}".format(key_lora)] = k
+                key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = k  # SimpleTuner lycoris format
+
     return key_map
 
 
-def weight_decompose(dora_scale, weight, lora_diff, alpha, strength, intermediate_dtype, function):
-    dora_scale = model_management.cast_to_device(dora_scale, weight.device, intermediate_dtype)
-    lora_diff *= alpha
-    weight_calc = weight + function(lora_diff).type(weight.dtype)
-    weight_norm = (
-        weight_calc.transpose(0, 1)
-        .reshape(weight_calc.shape[1], -1)
-        .norm(dim=1, keepdim=True)
-        .reshape(weight_calc.shape[1], *[1] * (weight_calc.dim() - 1))
-        .transpose(0, 1)
-    )
-
-    weight_calc *= (dora_scale / weight_norm).type(weight.dtype)
-    if strength != 1.0:
-        weight_calc -= weight
-        weight += strength * (weight_calc)
-    else:
-        weight[:] = weight_calc
-    return weight
-
-
-def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: list[int]) -> torch.Tensor:
+def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: Union[list[int], torch.Size]) -> torch.Tensor:
     """
     Pad a tensor to a new shape with zeros.
 
@@ -488,6 +385,16 @@ def calculate_weight(patches: ModelPatchesDictValue, weight, key, intermediate_d
             v = (calculate_weight(v[1:], v[0][1](model_management.cast_to_device(v[0][0], weight.device, intermediate_dtype, copy=True), inplace=True), key, intermediate_dtype=intermediate_dtype),)
 
         patch_type: PatchType = ""
+        if isinstance(v, weight_adapter.WeightAdapterBase):
+            output = v.calculate_weight(weight, key, strength, strength_model, offset, function, intermediate_dtype, original_weights)
+            if output is None:
+                logger.warning("Calculate Weight Failed: {} {}".format(v.name, key))
+            else:
+                weight = output
+                if old_weight is not None:
+                    weight = old_weight
+            continue
+
         if len(v) == 1:
             patch_type = "diff"
         elif len(v) == 2:
@@ -499,12 +406,12 @@ def calculate_weight(patches: ModelPatchesDictValue, weight, key, intermediate_d
             # An extra flag to pad the weight if the diff's shape is larger than the weight
             do_pad_weight = len(v) > 1 and v[1]['pad_weight']
             if do_pad_weight and diff.shape != weight.shape:
-                logging.info("Pad weight {} from {} to shape: {}".format(key, weight.shape, diff.shape))
+                logger.info("Pad weight {} from {} to shape: {}".format(key, weight.shape, diff.shape))
                 weight = pad_tensor_to_shape(weight, diff.shape)
 
             if strength != 0.0:
                 if diff.shape != weight.shape:
-                    logging.warning("WARNING SHAPE MISMATCH {} WEIGHT NOT MERGED {} != {}".format(key, diff.shape, weight.shape))
+                    logger.warning("WARNING SHAPE MISMATCH {} WEIGHT NOT MERGED {} != {}".format(key, diff.shape, weight.shape))
                 else:
                     weight += function(strength * model_management.cast_to_device(diff, weight.device, weight.dtype))
         elif patch_type == "set":
@@ -514,160 +421,8 @@ def calculate_weight(patches: ModelPatchesDictValue, weight, key, intermediate_d
             diff_weight = model_management.cast_to_device(target_weight, weight.device, intermediate_dtype) - \
                           model_management.cast_to_device(original_weights[key][0][0], weight.device, intermediate_dtype)
             weight += function(strength * model_management.cast_to_device(diff_weight, weight.device, weight.dtype))
-        elif patch_type == "lora":  # lora/locon
-            mat1 = model_management.cast_to_device(v[0], weight.device, intermediate_dtype)
-            mat2 = model_management.cast_to_device(v[1], weight.device, intermediate_dtype)
-            dora_scale = v[4]
-            reshape = v[5]
-
-            if reshape is not None:
-                weight = pad_tensor_to_shape(weight, reshape)
-
-            if v[2] is not None:
-                alpha = v[2] / mat2.shape[0]
-            else:
-                alpha = 1.0
-
-            if v[3] is not None:
-                # locon mid weights, hopefully the math is fine because I didn't properly test it
-                mat3 = model_management.cast_to_device(v[3], weight.device, intermediate_dtype)
-                final_shape = [mat2.shape[1], mat2.shape[0], mat3.shape[2], mat3.shape[3]]
-                mat2 = torch.mm(mat2.transpose(0, 1).flatten(start_dim=1), mat3.transpose(0, 1).flatten(start_dim=1)).reshape(final_shape).transpose(0, 1)
-            try:
-                lora_diff = torch.mm(mat1.flatten(start_dim=1), mat2.flatten(start_dim=1)).reshape(weight.shape)
-                if dora_scale is not None:
-                    weight = weight_decompose(dora_scale, weight, lora_diff, alpha, strength, intermediate_dtype, function)
-                else:
-                    weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-            except Exception as e:
-                logging.error("ERROR {} {} {}".format(patch_type, key, e))
-        elif patch_type == "lokr":
-            w1 = v[0]
-            w2 = v[1]
-            w1_a = v[3]
-            w1_b = v[4]
-            w2_a = v[5]
-            w2_b = v[6]
-            t2 = v[7]
-            dora_scale = v[8]
-            dim = None
-
-            if w1 is None:
-                dim = w1_b.shape[0]
-                w1 = torch.mm(model_management.cast_to_device(w1_a, weight.device, intermediate_dtype),
-                              model_management.cast_to_device(w1_b, weight.device, intermediate_dtype))
-            else:
-                w1 = model_management.cast_to_device(w1, weight.device, intermediate_dtype)
-
-            if w2 is None:
-                dim = w2_b.shape[0]
-                if t2 is None:
-                    w2 = torch.mm(model_management.cast_to_device(w2_a, weight.device, intermediate_dtype),
-                                  model_management.cast_to_device(w2_b, weight.device, intermediate_dtype))
-                else:
-                    w2 = torch.einsum('i j k l, j r, i p -> p r k l',
-                                      model_management.cast_to_device(t2, weight.device, intermediate_dtype),
-                                      model_management.cast_to_device(w2_b, weight.device, intermediate_dtype),
-                                      model_management.cast_to_device(w2_a, weight.device, intermediate_dtype))
-            else:
-                w2 = model_management.cast_to_device(w2, weight.device, intermediate_dtype)
-
-            if len(w2.shape) == 4:
-                w1 = w1.unsqueeze(2).unsqueeze(2)
-            if v[2] is not None and dim is not None:
-                alpha = v[2] / dim
-            else:
-                alpha = 1.0
-
-            try:
-                lora_diff = torch.kron(w1, w2).reshape(weight.shape)
-                if dora_scale is not None:
-                    weight = weight_decompose(dora_scale, weight, lora_diff, alpha, strength, intermediate_dtype, function)
-                else:
-                    weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-            except Exception as e:
-                logging.error("ERROR {} {} {}".format(patch_type, key, e))
-        elif patch_type == "loha":
-            w1a = v[0]
-            w1b = v[1]
-            if v[2] is not None:
-                alpha = v[2] / w1b.shape[0]
-            else:
-                alpha = 1.0
-
-            w2a = v[3]
-            w2b = v[4]
-            dora_scale = v[7]
-            if v[5] is not None:  # cp decomposition
-                t1 = v[5]
-                t2 = v[6]
-                m1 = torch.einsum('i j k l, j r, i p -> p r k l',
-                                  model_management.cast_to_device(t1, weight.device, intermediate_dtype),
-                                  model_management.cast_to_device(w1b, weight.device, intermediate_dtype),
-                                  model_management.cast_to_device(w1a, weight.device, intermediate_dtype))
-
-                m2 = torch.einsum('i j k l, j r, i p -> p r k l',
-                                  model_management.cast_to_device(t2, weight.device, intermediate_dtype),
-                                  model_management.cast_to_device(w2b, weight.device, intermediate_dtype),
-                                  model_management.cast_to_device(w2a, weight.device, intermediate_dtype))
-            else:
-                m1 = torch.mm(model_management.cast_to_device(w1a, weight.device, intermediate_dtype),
-                              model_management.cast_to_device(w1b, weight.device, intermediate_dtype))
-                m2 = torch.mm(model_management.cast_to_device(w2a, weight.device, intermediate_dtype),
-                              model_management.cast_to_device(w2b, weight.device, intermediate_dtype))
-
-            try:
-                lora_diff = (m1 * m2).reshape(weight.shape)
-                if dora_scale is not None:
-                    weight = weight_decompose(dora_scale, weight, lora_diff, alpha, strength, intermediate_dtype, function)
-                else:
-                    weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-            except Exception as e:
-                logging.error("ERROR {} {} {}".format(patch_type, key, e))
-        elif patch_type == "glora":
-            rank = 0
-            dora_scale = v[5]
-
-            old_glora = False
-            if v[3].shape[1] == v[2].shape[0] == v[0].shape[0] == v[1].shape[1]:
-                rank = v[0].shape[0]
-                old_glora = True
-
-            if v[3].shape[0] == v[2].shape[1] == v[0].shape[1] == v[1].shape[0]:
-                if old_glora and v[1].shape[0] == weight.shape[0] and weight.shape[0] == weight.shape[1]:
-                    pass
-                else:
-                    old_glora = False
-                    rank = v[1].shape[0]
-
-            a1 = model_management.cast_to_device(v[0].flatten(start_dim=1), weight.device, intermediate_dtype)
-            a2 = model_management.cast_to_device(v[1].flatten(start_dim=1), weight.device, intermediate_dtype)
-            b1 = model_management.cast_to_device(v[2].flatten(start_dim=1), weight.device, intermediate_dtype)
-            b2 = model_management.cast_to_device(v[3].flatten(start_dim=1), weight.device, intermediate_dtype)
-
-            if v[4] is not None:
-                alpha = v[4] / rank
-            else:
-                alpha = 1.0
-
-            try:
-                if old_glora:
-                    lora_diff = (torch.mm(b2, b1) + torch.mm(torch.mm(weight.flatten(start_dim=1).to(dtype=intermediate_dtype), a2), a1)).reshape(weight.shape)  # old lycoris glora
-                else:
-                    if weight.dim() > 2:
-                        lora_diff = torch.einsum("o i ..., i j -> o j ...", torch.einsum("o i ..., i j -> o j ...", weight.to(dtype=intermediate_dtype), a1), a2).reshape(weight.shape)
-                    else:
-                        lora_diff = torch.mm(torch.mm(weight.to(dtype=intermediate_dtype), a1), a2).reshape(weight.shape)
-                    lora_diff += torch.mm(b1, b2).reshape(weight.shape)
-
-                if dora_scale is not None:
-                    weight = weight_decompose(dora_scale, weight, lora_diff, alpha, strength, intermediate_dtype, function)
-                else:
-                    weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-            except Exception as e:
-                logging.error("ERROR {} {} {}".format(patch_type, key, e))
         else:
-            logging.warning("patch type not recognized {} {}".format(patch_type, key))
+            logger.warning("patch type not recognized {} {}".format(patch_type, key))
 
         if old_weight is not None:
             weight = old_weight

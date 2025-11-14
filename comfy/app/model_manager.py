@@ -13,7 +13,7 @@ from aiohttp import web
 
 from .. import utils
 from ..cmd import folder_paths
-
+logger = logging.getLogger(__name__)
 
 class ModelFileManager:
     def __init__(self) -> None:
@@ -78,7 +78,6 @@ class ModelFileManager:
                 return web.Response(status=404)
 
     def get_model_file_list(self, folder_name: str):
-        folder_name = folder_paths.map_legacy(folder_name)
         folders = folder_paths.folder_names_and_paths[folder_name]
         output_list: list[dict] = []
 
@@ -131,10 +130,21 @@ class ModelFileManager:
 
             for file_name in filenames:
                 try:
-                    relative_path = os.path.relpath(os.path.join(dirpath, file_name), directory)
-                    result.append(relative_path)
-                except:
-                    logging.warning(f"Warning: Unable to access {file_name}. Skipping this file.")
+                    full_path = os.path.join(dirpath, file_name)
+                    relative_path = os.path.relpath(full_path, directory)
+
+                    # Get file metadata
+                    file_info = {
+                        "name": relative_path,
+                        "pathIndex": pathIndex,
+                        "modified": os.path.getmtime(full_path),  # Add modification time
+                        "created": os.path.getctime(full_path),   # Add creation time
+                        "size": os.path.getsize(full_path)        # Add file size
+                    }
+                    result.append(file_info)
+
+                except Exception as e:
+                    logger.warning(f"Warning: Unable to access {file_name}. Error: {e}. Skipping this file.")
                     continue
 
             for d in subdirs:
@@ -142,10 +152,10 @@ class ModelFileManager:
                 try:
                     dirs[path] = os.path.getmtime(path)
                 except FileNotFoundError:
-                    logging.warning(f"Warning: Unable to access {path}. Skipping this path.")
+                    logger.warning(f"Warning: Unable to access {path}. Skipping this path.")
                     continue
 
-        return [{"name": f, "pathIndex": pathIndex} for f in result], dirs, time.perf_counter()
+        return result, dirs, time.perf_counter()
 
     def get_model_previews(self, filepath: str) -> list[str | BytesIO]:
         dirname = os.path.dirname(filepath)

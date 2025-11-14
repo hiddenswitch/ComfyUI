@@ -28,15 +28,15 @@ SOFTWARE.
 import copy
 from typing import Sequence, Tuple
 
-import cv2 as cv
+import cv2
 import numpy as np
 import torch
 from torch import Tensor
 
-from .component_model.images_types import RgbMaskTuple
+from .component_model.images_types import ImageMaskTuple
 
 
-read_exr = lambda fp: cv.imread(fp, cv.IMREAD_UNCHANGED).astype(np.float32) # pylint: disable=no-member
+read_exr = lambda fp: cv2.imread(fp, cv2.IMREAD_UNCHANGED).astype(np.float32) 
 
 def mut_srgb_to_linear(np_array) -> None:
     less = np_array <= 0.0404482362771082
@@ -50,7 +50,7 @@ def mut_linear_to_srgb(np_array) -> None:
     np_array[~less] = np.power(np_array[~less], 1 / 2.4) * 1.055 - 0.055
 
 
-def load_exr(file_path: str, srgb: bool) -> RgbMaskTuple:
+def load_exr(file_path: str, srgb: bool) -> ImageMaskTuple:
     image = read_exr(file_path)
     rgb = np.flip(image[:, :, :3], 2).copy()
     if srgb:
@@ -62,7 +62,7 @@ def load_exr(file_path: str, srgb: bool) -> RgbMaskTuple:
     if image.shape[2] > 3:
         mask[0] = torch.from_numpy(np.clip(image[:, :, 3], 0, 1))
 
-    return RgbMaskTuple(rgb, mask)
+    return ImageMaskTuple(rgb, mask)
 
 
 def load_exr_latent(file_path: str) -> Tuple[Tensor]:
@@ -85,4 +85,4 @@ def save_exr(images: Tensor, filepaths_batched: Sequence[str], colorspace="linea
         bgr[:, :, :, 3] = np.clip(1 - linear[:, :, :, 3], 0, 1)  # invert alpha
 
     for i in range(len(linear.shape[0])):
-        cv.imwrite(filepaths_batched[i], bgr[i]) # pylint: disable=no-member
+        cv2.imwrite(filepaths_batched[i], bgr[i]) 

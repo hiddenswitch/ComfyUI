@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import collections
 import copy
+import dataclasses
 import inspect
 import logging
 import typing
@@ -29,6 +30,7 @@ from typing import Callable, Optional
 import torch
 import torch.nn
 from humanize import naturalsize
+from natsort import natsorted
 
 from . import model_management, lora
 from . import patcher_extension
@@ -36,10 +38,11 @@ from . import utils
 from .comfy_types import UnetWrapperFunction
 from .component_model.deprecation import _deprecate_method
 from .float import stochastic_rounding
+from .gguf import move_patch_to_device, is_torch_compatible, is_quantized, GGMLOps
 from .hooks import EnumHookMode, _HookRef, HookGroup, EnumHookType, WeightHook, create_transformer_options_from_hooks
-from .lora_types import PatchDict, PatchDictKey, PatchTuple, PatchWeightTuple, ModelPatchesDictValue
+from .lora_types import PatchDict, PatchDictKey, PatchTuple, PatchWeightTuple, ModelPatchesDictValue, PatchSupport
 from .model_base import BaseModel
-from .model_management_types import ModelManageable, MemoryMeasurements, ModelOptions, LatentFormatT, LoadingListItem
+from .model_management_types import ModelManageable, MemoryMeasurements, ModelOptions, LatentFormatT, LoadingListItem, TrainingSupport, HooksSupport
 from .patcher_extension import CallbacksMP, WrappersMP, PatcherInjection
 
 logger = logging.getLogger(__name__)
@@ -119,6 +122,7 @@ def wipe_lowvram_weight(m):
     if hasattr(m, "bias_function"):
         m.bias_function = []
 
+
 def move_weight_functions(m, device):
     if device is None:
         return 0
@@ -137,17 +141,30 @@ def move_weight_functions(m, device):
 
 
 class LowVramPatch:
-    def __init__(self, key, patches):
+    def __init__(self, key, patches, convert_func=None, set_func=None):
         self.key = key
         self.patches = patches
+        self.convert_func = convert_func
+        self.set_func = set_func
 
     def __call__(self, weight):
         intermediate_dtype = weight.dtype
+        if self.convert_func is not None:
+            weight = self.convert_func(weight.to(dtype=torch.float32, copy=True), inplace=True)
+
         if intermediate_dtype not in [torch.float32, torch.float16, torch.bfloat16]:  # intermediate_dtype has to be one that is supported in math ops
             intermediate_dtype = torch.float32
-            return stochastic_rounding(lora.calculate_weight(self.patches[self.key], weight.to(intermediate_dtype), self.key, intermediate_dtype=intermediate_dtype), weight.dtype, seed=string_to_seed(self.key))
-        return lora.calculate_weight(self.patches[self.key], weight, self.key, intermediate_dtype=intermediate_dtype)
+            out = lora.calculate_weight(self.patches[self.key], weight.to(intermediate_dtype), self.key, intermediate_dtype=intermediate_dtype)
+            if self.set_func is None:
+                return stochastic_rounding(out, weight.dtype, seed=string_to_seed(self.key))
+            else:
+                return self.set_func(out, seed=string_to_seed(self.key), return_weight=True)
 
+        out = lora.calculate_weight(self.patches[self.key], weight, self.key, intermediate_dtype=intermediate_dtype)
+        if self.set_func is not None:
+            return self.set_func(out, seed=string_to_seed(self.key), return_weight=True).to(dtype=intermediate_dtype)
+        else:
+            return out
 
 def get_key_weight(model, key):
     set_func = None
@@ -219,7 +236,14 @@ class MemoryCounter:
         self.value -= used
 
 
-class ModelPatcher(ModelManageable):
+@dataclasses.dataclass
+class GGUFQuantization:
+    loaded_from_gguf: bool = False
+    mmap_released: bool = False
+    patch_on_device: bool = False
+
+
+class ModelPatcher(ModelManageable, PatchSupport):
     def __init__(self, model: BaseModel | torch.nn.Module, load_device: torch.device, offload_device: torch.device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
         self.size = size
         self.model: BaseModel | torch.nn.Module = model
@@ -255,6 +279,9 @@ class ModelPatcher(ModelManageable):
         self.forced_hooks: Optional[HookGroup] = None  # NOTE: only used for CLIP at this time
         self.is_clip = False
         self.hook_mode = EnumHookMode.MaxSpeed
+        self.gguf = GGUFQuantization()
+        if isinstance(model, BaseModel) and model.operations == GGMLOps:
+            self.gguf.loaded_from_gguf = True
 
     @property
     def model_options(self) -> ModelOptions:
@@ -289,7 +316,7 @@ class ModelPatcher(ModelManageable):
         return self._force_cast_weights
 
     @force_cast_weights.setter
-    def force_cast_weights(self, value:bool) -> None:
+    def force_cast_weights(self, value: bool) -> None:
         self._force_cast_weights = value
 
     def lowvram_patch_counter(self):
@@ -359,6 +386,9 @@ class ModelPatcher(ModelManageable):
         n.forced_hooks = self.forced_hooks.clone() if self.forced_hooks else self.forced_hooks
         n.is_clip = self.is_clip
         n.hook_mode = self.hook_mode
+        n.gguf = copy.copy(self.gguf)
+        # todo: when is this set back to False? when would it make sense to?
+        n.gguf.mmap_released = False
 
         for callback in self.get_all_callbacks(CallbacksMP.ON_CLONE):
             callback(self, n)
@@ -417,6 +447,9 @@ class ModelPatcher(ModelManageable):
     def set_model_sampler_pre_cfg_function(self, pre_cfg_function, disable_cfg1_optimization=False):
         self.model_options = set_model_options_pre_cfg_function(self.model_options, pre_cfg_function, disable_cfg1_optimization)
 
+    def set_model_sampler_calc_cond_batch_function(self, sampler_calc_cond_batch_function):
+        self.model_options["sampler_calc_cond_batch_function"] = sampler_calc_cond_batch_function
+
     def set_model_unet_function_wrapper(self, unet_wrapper_function: UnetWrapperFunction):
         self.model_options["model_function_wrapper"] = unet_wrapper_function
 
@@ -465,6 +498,12 @@ class ModelPatcher(ModelManageable):
     def set_model_forward_timestep_embed_patch(self, patch):
         self.set_model_patch(patch, "forward_timestep_embed_patch")
 
+    def set_model_double_block_patch(self, patch):
+        self.set_model_patch(patch, "double_block")
+
+    def set_model_post_input_patch(self, patch):
+        self.set_model_patch(patch, "post_input")
+
     def add_object_patch(self, name, obj):
         self.object_patches[name] = obj
 
@@ -472,7 +511,7 @@ class ModelPatcher(ModelManageable):
         self.add_object_patch("manual_cast_dtype", dtype)
         if dtype is not None:
             self.force_cast_weights = True
-        self.patches_uuid = uuid.uuid4() #TODO: optimize by preventing a full model reload for this
+        self.patches_uuid = uuid.uuid4()  # TODO: optimize by preventing a full model reload for this
 
     def add_weight_wrapper(self, name, function):
         self.weight_wrapper_patches[name] = self.weight_wrapper_patches.get(name, []) + [function]
@@ -532,6 +571,30 @@ class ModelPatcher(ModelManageable):
             wrap_func = self.model_options["model_function_wrapper"]
             if hasattr(wrap_func, "to"):
                 self.model_options["model_function_wrapper"] = wrap_func.to(device)
+
+    def model_patches_models(self):
+        to = self.model_options["transformer_options"]
+        models = []
+        if "patches" in to:
+            patches = to["patches"]
+            for name in patches:
+                patch_list = patches[name]
+                for i in range(len(patch_list)):
+                    if hasattr(patch_list[i], "models"):
+                        models += patch_list[i].models()
+        if "patches_replace" in to:
+            patches = to["patches_replace"]
+            for name in patches:
+                patch_list = patches[name]
+                for k in patch_list:
+                    if hasattr(patch_list[k], "models"):
+                        models += patch_list[k].models()
+        if "model_function_wrapper" in self.model_options:
+            wrap_func = self.model_options["model_function_wrapper"]
+            if hasattr(wrap_func, "models"):
+                models += wrap_func.models()
+
+        return models
 
     def model_dtype(self):
         # this pokes into the internals of diffusion model a little bit
@@ -607,6 +670,19 @@ class ModelPatcher(ModelManageable):
         weight, set_func, convert_func = get_key_weight(self.model, key)
         inplace_update = self.weight_inplace_update or inplace_update
 
+        # from gguf
+        if is_quantized(weight):
+            out_weight = weight.to(device_to)
+            patches = move_patch_to_device(self.patches[key], self.load_device if self.gguf.patch_on_device else self.offload_device)
+            # TODO: do we ever have legitimate duplicate patches? (i.e. patch on top of patched weight)
+            out_weight.patches = [(patches, key)]
+            if inplace_update:
+                utils.copy_to_param(self.model, key, out_weight)
+            else:
+                utils.set_attr_param(self.model, key, out_weight)
+                return
+        # end gguf
+
         if key not in self.backup:
             self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
@@ -627,7 +703,6 @@ class ModelPatcher(ModelManageable):
         else:
             set_func(out_weight, inplace_update=inplace_update, seed=string_to_seed(key))
 
-
     def _load_list(self) -> list[LoadingListItem]:
         loading = []
         for n, m in self.model.named_modules():
@@ -644,6 +719,9 @@ class ModelPatcher(ModelManageable):
         return loading
 
     def load(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False, full_load=False):
+        if self.gguf.loaded_from_gguf:
+            force_patch_weights = True
+
         with self.use_ejected():
             self.unpatch_hooks()
             mem_counter = 0
@@ -681,13 +759,15 @@ class ModelPatcher(ModelManageable):
                         if force_patch_weights:
                             self.patch_weight_to_device(weight_key)
                         else:
-                            m.weight_function = [LowVramPatch(weight_key, self.patches)]
+                            _, set_func, convert_func = get_key_weight(self.model, weight_key)
+                            m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
                             patch_counter += 1
                     if bias_key in self.patches:
                         if force_patch_weights:
                             self.patch_weight_to_device(bias_key)
                         else:
-                            m.bias_function = [LowVramPatch(bias_key, self.patches)]
+                            _, set_func, convert_func = get_key_weight(self.model, bias_key)
+                            m.bias_function = [LowVramPatch(bias_key, self.patches, convert_func, set_func)]
                             patch_counter += 1
 
                     cast_weight = True
@@ -712,6 +792,7 @@ class ModelPatcher(ModelManageable):
                 mem_counter += move_weight_functions(m, device_to)
 
             load_completely.sort(reverse=True)
+            models_loaded_regularly: list[str] = []
             for x in load_completely:
                 n = x.name
                 m = x.module
@@ -723,21 +804,43 @@ class ModelPatcher(ModelManageable):
                 for param in params:
                     self.patch_weight_to_device("{}.{}".format(n, param), device_to=device_to)
 
-                logger.debug("lowvram: loaded module regularly {} {}".format(n, m))
+                models_loaded_regularly.append("name={} module={}".format(n, m))
                 m.comfy_patched_weights = True
-
+            logger.debug("lowvram: loaded module regularly: {}".format(", ".join(models_loaded_regularly)))
             for x in load_completely:
                 x.module.to(device_to)
 
             if lowvram_counter > 0:
-                logger.debug("loaded partially {} {} {}".format(lowvram_model_memory / (1024 * 1024), mem_counter / (1024 * 1024), patch_counter))
+                logger.debug(f"loaded partially lowvram_model_memory={lowvram_model_memory / (1024 * 1024):.1f}MB mem_counter={mem_counter / (1024 * 1024):.1f}MB patch_counter={patch_counter}")
                 self._memory_measurements.model_lowvram = True
             else:
-                logger.debug("loaded completely {} {} {}".format(lowvram_model_memory / (1024 * 1024), mem_counter / (1024 * 1024), full_load))
+                logger.debug(f"loaded completely lowvram_model_memory={lowvram_model_memory / (1024 * 1024):.1f}MB mem_counter={mem_counter / (1024 * 1024):.1f}MB full_load={full_load}")
                 self._memory_measurements.model_lowvram = False
                 if full_load:
                     self.model.to(device_to)
                     mem_counter = self.model_size()
+
+            if self.gguf.loaded_from_gguf and not self.gguf.mmap_released:
+                # todo: when is mmap_released set to True?
+                linked = []
+                if lowvram_model_memory > 0:
+                    for n, m in self.model.named_modules():
+                        if hasattr(m, "weight"):
+                            device = getattr(m.weight, "device", None)
+                            if device == self.offload_device:
+                                linked.append((n, m))
+                                continue
+                        if hasattr(m, "bias"):
+                            device = getattr(m.bias, "device", None)
+                            if device == self.offload_device:
+                                linked.append((n, m))
+                                continue
+                if linked and self.load_device != self.offload_device:
+                    logger.info(f"gguf attempting to release mmap ({len(linked)})")
+                    for n, m in linked:
+                        # TODO: possible to OOM, find better way to detach
+                        m.to(self.load_device).to(self.offload_device)
+                self.gguf.mmap_released = True
 
         self._memory_measurements.lowvram_patch_counter += patch_counter
 
@@ -769,6 +872,13 @@ class ModelPatcher(ModelManageable):
 
     def unpatch_model(self, device_to=None, unpatch_weights=True):
         self.eject_model()
+        if self.gguf.loaded_from_gguf and unpatch_weights:
+            for p in self.model.parameters():
+                if is_torch_compatible(p):
+                    continue
+                patches = self.patches
+                if len(patches) > 0:
+                    p.patches = []
         if unpatch_weights:
             self.unpatch_hooks()
             if self._memory_measurements.model_lowvram:
@@ -809,6 +919,7 @@ class ModelPatcher(ModelManageable):
         self.object_patches_backup.clear()
 
     def partially_unload(self, device_to, memory_to_free=0):
+        freed_layers: list[str] = []
         with self.use_ejected():
             hooks_unpatched = False
             memory_freed = 0
@@ -852,10 +963,12 @@ class ModelPatcher(ModelManageable):
                         module_mem += move_weight_functions(m, device_to)
                         if lowvram_possible:
                             if weight_key in self.patches:
-                                m.weight_function.append(LowVramPatch(weight_key, self.patches))
+                                _, set_func, convert_func = get_key_weight(self.model, weight_key)
+                                m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
                                 patch_counter += 1
                             if bias_key in self.patches:
-                                m.bias_function.append(LowVramPatch(bias_key, self.patches))
+                                _, set_func, convert_func = get_key_weight(self.model, bias_key)
+                                m.bias_function.append(LowVramPatch(bias_key, self.patches, convert_func, set_func))
                                 patch_counter += 1
                             cast_weight = True
 
@@ -864,7 +977,9 @@ class ModelPatcher(ModelManageable):
                             m.comfy_cast_weights = True
                         m.comfy_patched_weights = False
                         memory_freed += module_mem
-                        logging.debug("freed {}".format(n))
+                        freed_layers.append(n)
+
+            logger.debug("freed {}".format(natsorted(freed_layers)))
 
             self._memory_measurements.model_lowvram = True
             self._memory_measurements.lowvram_patch_counter += patch_counter
@@ -1187,7 +1302,7 @@ class ModelPatcher(ModelManageable):
                     model_sd_keys_set = set(model_sd_keys)
                     for key in cached_weights:
                         if key not in model_sd_keys:
-                            logging.warning(f"Cached hook could not patch. Key does not exist in model: {key}")
+                            logger.warning(f"Cached hook could not patch. Key does not exist in model: {key}")
                             continue
                         self.patch_cached_hook_weights(cached_weights=cached_weights, key=key, memory_counter=memory_counter)
                         model_sd_keys_set.remove(key)
@@ -1200,7 +1315,7 @@ class ModelPatcher(ModelManageable):
                         original_weights = self.get_key_patches()
                     for key in relevant_patches:
                         if key not in model_sd_keys:
-                            logging.warning(f"Cached hook would not patch. Key does not exist in model: {key}")
+                            logger.warning(f"Cached hook would not patch. Key does not exist in model: {key}")
                             continue
                         self.patch_hook_weight_to_device(hooks=hooks, combined_patches=relevant_patches, key=key, original_weights=original_weights,
                                                          memory_counter=memory_counter)
@@ -1262,7 +1377,7 @@ class ModelPatcher(ModelManageable):
         del out_weight
         del weight
 
-    def unpatch_hooks(self, whitelist_keys_set: set[str]=None) -> None:
+    def unpatch_hooks(self, whitelist_keys_set: set[str] = None) -> None:
         with self.use_ejected():
             if len(self.hook_backup) == 0:
                 self.current_hooks = None

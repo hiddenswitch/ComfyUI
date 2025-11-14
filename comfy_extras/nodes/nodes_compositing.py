@@ -7,6 +7,7 @@ from skimage import exposure
 import comfy.utils
 from comfy.component_model.tensor_types import RGBImageBatch, ImageBatch, MaskBatch
 from comfy.nodes.package_typing import CustomNode
+from comfy_api.latest import io
 
 
 def resize_mask(mask, shape):
@@ -162,8 +163,7 @@ class PorterDuffImageCompositeV2:
             out_images.append(out_image)
             out_alphas.append(out_alpha.squeeze(2))
 
-        result = (torch.stack(out_images), torch.stack(out_alphas))
-        return result
+        return io.NodeOutput(torch.stack(out_images), torch.stack(out_alphas))
 
 
 class PorterDuffImageCompositeV1(PorterDuffImageCompositeV2):
@@ -188,41 +188,45 @@ class PorterDuffImageCompositeV1(PorterDuffImageCompositeV2):
         return super().composite(source, destination, mode, source_alpha, destination_alpha)
 
 
-class SplitImageWithAlpha:
+class SplitImageWithAlpha(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-            }
-        }
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SplitImageWithAlpha",
+            display_name="Split Image with Alpha",
+            category="mask/compositing",
+            inputs=[
+                io.Image.Input("image"),
+            ],
+            outputs=[
+                io.Image.Output(),
+                io.Mask.Output(),
+            ],
+        )
 
-    CATEGORY = "mask/compositing"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    FUNCTION = "split_image_with_alpha"
-
-    def split_image_with_alpha(self, image: torch.Tensor):
+    @classmethod
+    def execute(cls, image: torch.Tensor) -> io.NodeOutput:
         out_images = [i[:, :, :3] for i in image]
         out_alphas = [i[:, :, 3] if i.shape[2] > 3 else torch.ones_like(i[:, :, 0]) for i in image]
-        result = (torch.stack(out_images), 1.0 - torch.stack(out_alphas))
-        return result
+        return io.NodeOutput(torch.stack(out_images), 1.0 - torch.stack(out_alphas))
 
 
-class JoinImageWithAlpha:
+class JoinImageWithAlpha(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                "alpha": ("MASK",),
-            }
-        }
+    def define_schema(cls):
+        return io.Schema(
+            node_id="JoinImageWithAlpha",
+            display_name="Join Image with Alpha",
+            category="mask/compositing",
+            inputs=[
+                io.Image.Input("image"),
+                io.Mask.Input("alpha"),
+            ],
+            outputs=[io.Image.Output()],
+        )
 
-    CATEGORY = "mask/compositing"
-    RETURN_TYPES = ("IMAGE",)
-    FUNCTION = "join_image_with_alpha"
-
-    def join_image_with_alpha(self, image: torch.Tensor, alpha: torch.Tensor):
+    @classmethod
+    def execute(cls, image: torch.Tensor, alpha: torch.Tensor) -> io.NodeOutput:
         batch_size = min(len(image), len(alpha))
         out_images = []
 
@@ -230,8 +234,7 @@ class JoinImageWithAlpha:
         for i in range(batch_size):
             out_images.append(torch.cat((image[i][:, :, :3], alpha[i].unsqueeze(2)), dim=2))
 
-        result = (torch.stack(out_images),)
-        return result
+        return io.NodeOutput(torch.stack(out_images))
 
 
 class Flatten(CustomNode):
@@ -250,13 +253,16 @@ class Flatten(CustomNode):
     CATEGORY = "image/postprocessing"
 
     def convert_rgba_to_rgb(self, images: ImageBatch, background_color) -> tuple[RGBImageBatch]:
+        b, h, w, c = images.shape
+        if c == 3:
+            return images,
         bg_color = torch.tensor(self.hex_to_rgb(background_color), dtype=torch.float32) / 255.0
         rgb = images[..., :3]
         alpha = images[..., 3:4]
         bg = bg_color.view(1, 1, 1, 3).expand(rgb.shape)
         blended = alpha * rgb + (1 - alpha) * bg
 
-        return (blended,)
+        return blended,
 
     @staticmethod
     def hex_to_rgb(hex_color):

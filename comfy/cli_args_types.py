@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import logging
 import os
 from typing import Optional, List, Callable, Any, Union, Mapping, NamedTuple
 
@@ -20,6 +21,22 @@ class LatentPreviewMethod(enum.Enum):
 ConfigObserver = Callable[[str, Any], None]
 
 
+def db_config() -> str:
+    from .vendor.appdirs import user_data_dir
+
+    logger = logging.getLogger(__name__)
+    try:
+        data_dir = user_data_dir(appname="comfyui")
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, "comfy.db")
+        default_db_url = f"sqlite:///{db_path}"
+    except Exception as e:
+        # Fallback to an in-memory database if the user directory can't be accessed
+        logger.warning(f"Could not determine user data directory for database, falling back to in-memory: {e}")
+        default_db_url = "sqlite:///:memory:"
+    return default_db_url
+
+
 def is_valid_directory(path: str) -> str:
     """Validate if the given path is a directory, and check permissions."""
     if not os.path.exists(path):
@@ -35,6 +52,7 @@ class PerformanceFeature(enum.Enum):
     Fp16Accumulation = "fp16_accumulation"
     Fp8MatrixMultiplication = "fp8_matrix_mult"
     CublasOps = "cublas_ops"
+    AutoTune = "autotune"
 
 
 class Configuration(dict):
@@ -55,7 +73,6 @@ class Configuration(dict):
         temp_directory (Optional[str]): Temporary directory for processing.
         input_directory (Optional[str]): Directory for input files. When this is a relative path, it will be looked up relative to the cwd (current working directory) and all of the base_paths.
         auto_launch (bool): Auto-launch UI in the default browser. Defaults to False.
-        disable_auto_launch (bool): Disable auto-launching the browser.
         cuda_device (Optional[int]): CUDA device ID. None means default device.
         cuda_malloc (bool): Enable cudaMallocAsync. Defaults to True in applicable setups.
         disable_cuda_malloc (bool): Disable cudaMallocAsync.
@@ -78,7 +95,7 @@ class Configuration(dict):
         fp8_e5m2_text_enc (bool): Use FP8 precision for the text encoder (e5m2 variant).
         fp16_text_enc (bool): Use FP16 precision for the text encoder.
         fp32_text_enc (bool): Use FP32 precision for the text encoder.
-        openapi_device_selector (Optional[str]): Sets the oneAPI device(s) this instance will use.
+        oneapi_device_selector (Optional[str]): Sets the oneAPI device(s) this instance will use.
         directml (Optional[int]): Use DirectML. -1 for auto-selection.
         disable_ipex_optimize (bool): Disable IPEX optimization for Intel GPUs.
         preview_method (LatentPreviewMethod): Method for generating previews. Defaults to "auto".
@@ -87,7 +104,7 @@ class Configuration(dict):
         use_quad_cross_attention (bool): Use sub-quadratic cross-attention optimization.
         use_pytorch_cross_attention (bool): Use PyTorch's cross-attention function.
         use_sage_attention (bool): Use Sage Attention
-        use_flas_attention (bool): Use FlashAttention
+        use_flash_attention (bool): Use FlashAttention
         disable_xformers (bool): Disable xformers.
         gpu_only (bool): Run everything on the GPU.
         highvram (bool): Keep models in GPU memory.
@@ -132,6 +149,27 @@ class Configuration(dict):
         panic_when (list[str]): List of fully qualified exception class names to panic (sys.exit(1)) when a workflow raises it.
         enable_compress_response_body (bool): Enable compressing response body.
         workflows (list[str]): Execute the API workflow(s) specified in the provided files. For each workflow, its outputs will be printed to a line to standard out. Application logging will be redirected to standard error. Use `-` to signify standard in.
+        fp8_e8m0fnu_unet (bool): Store unet weights in fp8_e8m0fnu.
+        bf16_text_enc (bool): Store text encoder weights in bf16.
+        supports_fp8_compute (bool): ComfyUI will act like if the device supports fp8 compute.
+        cache_classic (bool): WARNING: Unused. Use the old style (aggressive) caching.
+        cache_none (bool): Reduced RAM/VRAM usage at the expense of executing every node for each run.
+        async_offload (bool): Use async weight offloading.
+        force_non_blocking (bool): Force ComfyUI to use non-blocking operations for all applicable tensors. This may improve performance on some non-Nvidia systems but can cause issues with some workflows.
+        default_hashing_function (str): Allows you to choose the hash function to use for duplicate filename / contents comparison. Default is sha256.
+        mmap_torch_files (bool): Use mmap when loading ckpt/pt files.
+        disable_mmap (bool): Don't use mmap when loading safetensors.
+        dont_print_server (bool): Don't print server output.
+        disable_api_nodes (bool): Disable loading all api nodes.
+        front_end_version (str): Specifies the version of the frontend to be used.
+        front_end_root (Optional[str]): The local filesystem path to the directory where the frontend is located. Overrides --front-end-version.
+        comfy_api_base (str): Set the base URL for the ComfyUI API. (default: https://api.comfy.org)
+        database_url (str): Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.
+        blacklist_custom_nodes (list[str]): Specify custom node folders to never load. Accepts shell-style globs.
+        whitelist_custom_nodes (list[str]): Specify custom node folders to load even when --disable-all-custom-nodes is enabled.
+        default_device (Optional[int]): Set the id of the default device, all other devices will stay visible.
+        block_runtime_package_installation (Optional[bool]): When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental).
+        enable_eval (Optional[bool]): Enable nodes that can evaluate Python code in workflows.
     """
 
     def __init__(self, **kwargs):
@@ -151,7 +189,6 @@ class Configuration(dict):
         self.temp_directory: Optional[str] = None
         self.input_directory: Optional[str] = None
         self.auto_launch: bool = False
-        self.disable_auto_launch: bool = False
         self.cuda_device: Optional[int] = None
         self.cuda_malloc: bool = True
         self.disable_cuda_malloc: bool = True
@@ -198,6 +235,8 @@ class Configuration(dict):
         self.windows_standalone_build: bool = False
         self.disable_metadata: bool = False
         self.disable_all_custom_nodes: bool = False
+        self.blacklist_custom_nodes: list[str] = []
+        self.whitelist_custom_nodes: list[str] = []
         self.multi_user: bool = False
         self.plausible_analytics_base_url: Optional[str] = None
         self.plausible_analytics_domain: Optional[str] = None
@@ -215,7 +254,7 @@ class Configuration(dict):
         self.force_hf_local_dir_mode = False
         self.preview_size: int = 512
         self.logging_level: str = "INFO"
-        self.openapi_device_selector: Optional[str] = None
+        self.oneapi_device_selector: Optional[str] = None
         self.log_stdout: bool = False
 
         # from guill
@@ -232,6 +271,26 @@ class Configuration(dict):
         self.user_directory: Optional[str] = None
         self.panic_when: list[str] = []
         self.workflows: list[str] = []
+
+        self.fp8_e8m0fnu_unet: bool = False
+        self.bf16_text_enc: bool = False
+        self.supports_fp8_compute: bool = False
+        self.cache_classic: bool = False
+        self.cache_none: bool = False
+        self.async_offload: bool = False
+        self.force_non_blocking: bool = False
+        self.default_hashing_function: str = 'sha256'
+        self.mmap_torch_files: bool = False
+        self.disable_mmap: bool = False
+        self.disable_api_nodes: bool = False
+        self.front_end_version: str = "comfyanonymous/ComfyUI@latest"
+        self.front_end_root: Optional[str] = None
+        self.comfy_api_base: str = "https://api.comfy.org"
+        self.database_url: str = db_config()
+        self.default_device: Optional[int] = None
+        self.block_runtime_package_installation = None
+        self.enable_eval: Optional[bool] = False
+
         for key, value in kwargs.items():
             self[key] = value
         # this must always be last
@@ -260,6 +319,8 @@ class Configuration(dict):
         super().update(__m, **kwargs)
         for k, v in changes.items():
             self._notify_observers(k, v)
+        # make this more pythonic
+        return self
 
     def register_observer(self, observer: ConfigObserver):
         self._observers.append(observer)
@@ -295,7 +356,7 @@ class Configuration(dict):
 
 class EnumAction(argparse.Action):
     """
-    Argparse action for handling Enums
+    Argparse action for handling Enums in a case-insensitive manner.
     """
 
     def __init__(self, **kwargs):
@@ -305,23 +366,33 @@ class EnumAction(argparse.Action):
         # Ensure an Enum subclass is provided
         if enum_type is None:
             raise ValueError("type must be assigned an Enum when using EnumAction")
-        enum_type: Any
         if not issubclass(enum_type, enum.Enum):
             raise TypeError("type must be an Enum when using EnumAction")
 
-        # Generate choices from the Enum
-        choices = tuple(e.value for e in enum_type)
-        kwargs.setdefault("choices", choices)
-        kwargs.setdefault("metavar", f"[{','.join(list(choices))}]")
-
-        super(EnumAction, self).__init__(**kwargs)
-
         self._enum = enum_type
 
+        # Generate choices from the Enum for the help message
+        choices = tuple(e.value for e in enum_type)
+        kwargs.setdefault("metavar", f"[{','.join(list(choices))}]")
+
+        # We handle choices ourselves for case-insensitivity, so remove it before calling super.
+        if "choices" in kwargs:
+            del kwargs["choices"]
+
+        super(EnumAction, self).__init__(**kwargs)
+        self._choices = choices
+
     def __call__(self, parser, namespace, values, option_string=None):
-        # Convert value back into an Enum
-        value = self._enum(values)
-        setattr(namespace, self.dest, value)
+        # Convert value back into an Enum, case-insensitively
+        value_lower = values.lower()
+        for member in self._enum:
+            if member.value.lower() == value_lower:
+                setattr(namespace, self.dest, member)
+                return
+
+        # If no match found, raise an error
+        msg = f"invalid choice: {values!r} (choose from {', '.join(self._choices)})"
+        raise argparse.ArgumentError(self, msg)
 
 
 class ParsedArgs(NamedTuple):
@@ -344,3 +415,26 @@ class EnhancedConfigArgParser(configargparse.ArgParser):
 
         namespace, unknown_args = super().parse_known_args(args, namespace, **kwargs)
         return ParsedArgs(namespace, unknown_args, config_files)
+
+
+class FlattenAndAppendAction(argparse.Action):
+    """
+    Custom action to handle comma-separated values and multiple invocations
+    of the same argument, flattening them into a single list.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        items = getattr(namespace, self.dest, None)
+        if items is None:
+            items = []
+        else:
+            # Make a copy if it's not the first time, to avoid modifying the default.
+            items = items[:]
+
+        # 'values' will be a list of strings because of nargs='+'
+        for value in values:
+            # Split comma-separated strings and add them to the list
+            items.extend(item.strip() for item in value.split(','))
+
+        # Set the flattened list back to the namespace.
+        setattr(namespace, self.dest, items)

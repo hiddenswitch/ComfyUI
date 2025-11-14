@@ -2,6 +2,10 @@ import os
 
 from comfy.cmd import folder_paths
 from comfy.nodes import base_nodes as nodes
+from comfy.comfy_types import IO
+from comfy_api.input_impl import VideoFromFile
+
+from pathlib import Path
 
 
 def normalize_path(path):
@@ -15,7 +19,14 @@ class Load3D():
 
         os.makedirs(input_dir, exist_ok=True)
 
-        files = [normalize_path(os.path.join("3d", f)) for f in os.listdir(input_dir) if f.endswith(('.gltf', '.glb', '.obj', '.mtl', '.fbx', '.stl'))]
+        input_path = Path(input_dir)
+        base_path = Path(folder_paths.get_input_directory())
+
+        files = [
+            normalize_path(str(file_path.relative_to(base_path)))
+            for file_path in input_path.rglob("*")
+            if file_path.suffix.lower() in {'.gltf', '.glb', '.obj', '.fbx', '.stl'}
+        ]
 
         return {"required": {
             "model_file": (sorted(files), {"file_upload": True}),
@@ -24,8 +35,8 @@ class Load3D():
             "height": ("INT", {"default": 1024, "min": 1, "max": 4096, "step": 1}),
         }}
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "IMAGE", "IMAGE", "LOAD3D_CAMERA")
-    RETURN_NAMES = ("image", "mask", "mesh_path", "normal", "lineart", "camera_info")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "IMAGE", "IMAGE", "LOAD3D_CAMERA", IO.VIDEO)
+    RETURN_NAMES = ("image", "mask", "mesh_path", "normal", "lineart", "camera_info", "recording_video")
 
     FUNCTION = "process"
     EXPERIMENTAL = True
@@ -44,7 +55,14 @@ class Load3D():
         normal_image, ignore_mask2 = load_image_node.load_image(image=normal_path)
         lineart_image, ignore_mask3 = load_image_node.load_image(image=lineart_path)
 
-        return output_image, output_mask, model_file, normal_image, lineart_image, image['camera_info']
+        video = None
+
+        if image['recording'] != "":
+            recording_video_path = folder_paths.get_annotated_filepath(image['recording'])
+
+            video = VideoFromFile(recording_video_path)
+
+        return output_image, output_mask, model_file, normal_image, lineart_image, image['camera_info'], video
 
 
 class Load3DAnimation():
@@ -54,7 +72,14 @@ class Load3DAnimation():
 
         os.makedirs(input_dir, exist_ok=True)
 
-        files = [normalize_path(os.path.join("3d", f)) for f in os.listdir(input_dir) if f.endswith(('.gltf', '.glb', '.fbx'))]
+        input_path = Path(input_dir)
+        base_path = Path(folder_paths.get_input_directory())
+
+        files = [
+            normalize_path(str(file_path.relative_to(base_path)))
+            for file_path in input_path.rglob("*")
+            if file_path.suffix.lower() in {'.gltf', '.glb', '.fbx'}
+        ]
 
         return {"required": {
             "model_file": (sorted(files), {"file_upload": True}),
@@ -63,8 +88,8 @@ class Load3DAnimation():
             "height": ("INT", {"default": 1024, "min": 1, "max": 4096, "step": 1}),
         }}
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "IMAGE", "LOAD3D_CAMERA")
-    RETURN_NAMES = ("image", "mask", "mesh_path", "normal", "camera_info")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "IMAGE", "LOAD3D_CAMERA", IO.VIDEO)
+    RETURN_NAMES = ("image", "mask", "mesh_path", "normal", "camera_info", "recording_video")
 
     FUNCTION = "process"
     EXPERIMENTAL = True
@@ -81,7 +106,14 @@ class Load3DAnimation():
         ignore_image, output_mask = load_image_node.load_image(image=mask_path)
         normal_image, ignore_mask2 = load_image_node.load_image(image=normal_path)
 
-        return output_image, output_mask, model_file, normal_image, image['camera_info']
+        video = None
+
+        if image['recording'] != "":
+            recording_video_path = folder_paths.get_annotated_filepath(image['recording'])
+
+            video = VideoFromFile(recording_video_path)
+
+        return output_image, output_mask, model_file, normal_image, image['camera_info'], video
 
 
 class Preview3D():

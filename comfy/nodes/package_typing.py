@@ -7,8 +7,6 @@ from typing import Union, Optional, Sequence, Dict, ClassVar, Protocol, Tuple, T
 
 from typing_extensions import TypedDict, NotRequired
 
-from comfy.comfy_types import FileLocator
-
 T = TypeVar('T')
 
 
@@ -63,12 +61,13 @@ BooleanSpec = Tuple[Literal["BOOLEAN"], BoolSpecOptions]
 
 ChoiceSpec = Tuple[Union[List[str], List[float], List[int], Tuple[str, ...], Tuple[float, ...], Tuple[int, ...]]]
 
-NonPrimitiveTypeSpec = Tuple[CommonReturnTypes, Any]
+NonPrimitiveTypeSpec = Tuple[CommonReturnTypes] | Tuple[CommonReturnTypes, dict]
 
 InputTypeSpec = Union[IntSpec, FloatSpec, StringSpec, BooleanSpec, ChoiceSpec, NonPrimitiveTypeSpec]
 
 # numpy seeds must be between 0 and 2**32 - 1
 Seed = ("INT", {"default": 0, "min": 0, "max": 2 ** 32 - 1})
+Seed31 = ("INT", {"default": 0, "min": 0, "max": 2 ** 31 - 1})
 Seed64 = ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True})
 SeedSpec = tuple[Literal["INT"], TypedDict("SeedSpecOptions", {"default": Literal[0], "min": Literal[0], "max": Literal[4294967295]})]
 
@@ -196,6 +195,13 @@ class ExportedNodes:
         exported_nodes = ExportedNodes().update(self)
         return exported_nodes.update(other)
 
+    def __bool__(self):
+        return len(self.NODE_CLASS_MAPPINGS) + len(self.NODE_DISPLAY_NAME_MAPPINGS) + len(self.EXTENSION_WEB_DIRS) > 0
+
+    def clear(self):
+        self.NODE_CLASS_MAPPINGS.clear()
+        self.EXTENSION_WEB_DIRS.clear()
+        self.NODE_DISPLAY_NAME_MAPPINGS.clear()
 
 class _ExportedNodesAsChainMap(ExportedNodes):
     @classmethod

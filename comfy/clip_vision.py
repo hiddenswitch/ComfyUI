@@ -13,6 +13,8 @@ from .component_model import files
 from .model_management import load_models_gpu
 from .utils import load_torch_file, transformers_convert, state_dict_prefix_replace
 
+logger = logging.getLogger(__name__)
+
 
 class Output:
     def __getitem__(self, key):
@@ -23,6 +25,7 @@ class Output:
 
 
 def clip_preprocess(image, size=224, mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711], crop=True):
+    image = image[:, :, :, :3] if image.shape[3] > 3 else image
     mean = torch.tensor(mean, device=image.device, dtype=image.dtype)
     std = torch.tensor(std, device=image.device, dtype=image.dtype)
     image = image.movedim(-1, 1)
@@ -40,11 +43,13 @@ def clip_preprocess(image, size=224, mean=[0.48145466, 0.4578275, 0.40821073], s
     image = torch.clip((255. * image), 0, 255).round() / 255.0
     return (image - mean.view([3, 1, 1])) / std.view([3, 1, 1])
 
+
 IMAGE_ENCODERS = {
     "clip_vision_model": clip_model.CLIPVisionModelProjection,
     "siglip_vision_model": clip_model.CLIPVisionModelProjection,
     "dinov2": dino2.Dinov2Model,
 }
+
 
 class ClipVisionModel():
     def __init__(self, json_config: dict | str):
@@ -62,7 +67,13 @@ class ClipVisionModel():
         self.image_size = config.get("image_size", 224)
         self.image_mean = config.get("image_mean", [0.48145466, 0.4578275, 0.40821073])
         self.image_std = config.get("image_std", [0.26862954, 0.26130258, 0.27577711])
-        model_class = IMAGE_ENCODERS.get(config.get("model_type", "clip_vision_model"))
+        model_type = config.get("model_type", "clip_vision_model")
+        model_class = IMAGE_ENCODERS.get(model_type)
+        if model_type == "siglip_vision_model":
+            self.return_all_hidden_states = True
+        else:
+            self.return_all_hidden_states = False
+
         self.load_device = model_management.text_encoder_device()
         offload_device = model_management.text_encoder_offload_device()
         self.dtype = model_management.text_encoder_dtype(self.load_device)
@@ -80,12 +91,17 @@ class ClipVisionModel():
     def encode_image(self, image, crop=True):
         load_models_gpu([self.patcher])
         pixel_values = clip_preprocess(image.to(self.load_device), size=self.image_size, mean=self.image_mean, std=self.image_std, crop=crop).float()
-        out = self.model(pixel_values=pixel_values, intermediate_output=-2)
+        out = self.model(pixel_values=pixel_values, intermediate_output='all' if self.return_all_hidden_states else -2)
 
         outputs = Output()
         outputs["last_hidden_state"] = out[0].to(model_management.intermediate_device())
         outputs["image_embeds"] = out[2].to(model_management.intermediate_device())
-        outputs["penultimate_hidden_states"] = out[1].to(model_management.intermediate_device())
+        if self.return_all_hidden_states:
+            all_hs = out[1].to(model_management.intermediate_device())
+            outputs["penultimate_hidden_states"] = all_hs[:, -2]
+            outputs["all_hidden_states"] = all_hs
+        else:
+            outputs["penultimate_hidden_states"] = out[1].to(model_management.intermediate_device())
         outputs["mm_projected"] = out[3]
         return outputs
 
@@ -139,15 +155,19 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False) -> Optional[ClipV
                 json_config = files.get_path_as_dict(None, "clip_vision_config_vitl_336.json")
         else:
             json_config = files.get_path_as_dict(None, "clip_vision_config_vitl.json")
-    elif "embeddings.patch_embeddings.projection.weight" in sd:
+
+    # Dinov2
+    elif 'encoder.layer.39.layer_scale2.lambda1' in sd:
         json_config = files.get_path_as_dict(None, "dino2_giant.json", package="comfy.image_encoders")
+    elif 'encoder.layer.23.layer_scale2.lambda1' in sd:
+        json_config = files.get_path_as_dict(None, "dino2_large.json", package="comfy.image_encoders")
     else:
         return None
 
     clip = ClipVisionModel(json_config)
     m, u = clip.load_sd(sd)
     if len(m) > 0:
-        logging.warning("missing clip vision: {}".format(m))
+        logger.warning("missing clip vision: {}".format(m))
     u = set(u)
     keys = list(sd.keys())
     for k in keys:

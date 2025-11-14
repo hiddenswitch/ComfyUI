@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 import zipfile
+import importlib.metadata
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -17,15 +18,17 @@ from typing_extensions import NotRequired
 
 from ..cli_args import DEFAULT_VERSION_STRING
 from ..cmd.folder_paths import add_model_folder_path  # pylint: disable=import-error
-
+logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 10  # seconds
 
 
 def check_frontend_version():
+    """the thing this does makes no sense, so it got cut"""
     return None
 
 
 def frontend_install_warning_message() -> str:
+    """the end user never needs to be messaged this"""
     return ""
 
 
@@ -79,9 +82,22 @@ class FrontEndProvider:
         response.raise_for_status()  # Raises an HTTPError if the response was an error
         return response.json()
 
+    @cached_property
+    def latest_prerelease(self) -> Release:
+        """Get the latest pre-release version - even if it's older than the latest release"""
+        release = [release for release in self.all_releases if release["prerelease"]]
+
+        if not release:
+            raise ValueError("No pre-releases found")
+
+        # GitHub returns releases in reverse chronological order, so first is latest
+        return release[0]
+
     def get_release(self, version: str) -> Release:
         if version == "latest":
             return self.latest_release
+        elif version == "prerelease":
+            return self.latest_prerelease
         else:
             for release in self.all_releases:
                 if release["tag_name"] in [version, f"v{version}"]:
@@ -123,13 +139,36 @@ class FrontendManager:
     CUSTOM_FRONTENDS_ROOT = add_model_folder_path("web_custom_versions", extensions=set())
 
     @classmethod
+    def get_required_frontend_version(cls) -> str:
+        """Get the required frontend package version."""
+        try:
+            # this isn't used the way it says
+            return importlib.metadata.version("comfyui_frontend_package")
+        except Exception as exc_info:
+            return "1.23.4"
+
+    @classmethod
+    def get_installed_templates_version(cls) -> str:
+        """Get the currently installed workflow templates package version."""
+        try:
+            templates_version_str = importlib.metadata.version("comfyui-workflow-templates")
+            return templates_version_str
+        except Exception:
+            return None
+
+    @classmethod
+    def get_required_templates_version(cls) -> str:
+        # returns a stub, since this isn't a helpful check in this environment
+        return "0.1.95"
+
+    @classmethod
     def default_frontend_path(cls) -> str:
         try:
             import comfyui_frontend_package
 
             return str(importlib.resources.files(comfyui_frontend_package) / "static")
         except ImportError:
-            logging.error(f"""comfyui-frontend-package is not installed.""".strip())
+            logger.error(f"comfyui-frontend-package is not installed.")
             return ""
 
     @classmethod
@@ -141,15 +180,22 @@ class FrontendManager:
                 importlib.resources.files(comfyui_workflow_templates) / "templates"
             )
         except ImportError:
-            logging.error(
-                f"""
-********** ERROR ***********
+            # we're not blind
+            logger.error("comfyui-workflow-templates is not installed.")
+            return ""
 
-comfyui-workflow-templates is not installed.
+    @classmethod
+    def embedded_docs_path(cls) -> str:
+        """Get the path to embedded documentation"""
+        try:
+            import comfyui_embedded_docs
 
-********** ERROR ***********
-""".strip()
+            return str(
+                importlib.resources.files(comfyui_embedded_docs) / "docs"
             )
+        except ImportError:
+            logger.info("comfyui-embedded-docs package not found")
+            return None
 
     @classmethod
     def parse_version_string(cls, value: str) -> tuple[str, str, str]:
@@ -163,7 +209,7 @@ comfyui-workflow-templates is not installed.
         Raises:
             argparse.ArgumentTypeError: If the version string is invalid.
         """
-        VERSION_PATTERN = r"^([a-zA-Z0-9][a-zA-Z0-9-]{0,38})/([a-zA-Z0-9_.-]+)@(v?\d+\.\d+\.\d+|latest)$"
+        VERSION_PATTERN = r"^([a-zA-Z0-9][a-zA-Z0-9-]{0,38})/([a-zA-Z0-9_.-]+)@(v?\d+\.\d+\.\d+[-._a-zA-Z0-9]*|latest|prerelease)$"
         match_result = re.match(VERSION_PATTERN, value)
         if match_result is None:
             raise argparse.ArgumentTypeError(f"Invalid version string: {value}")
@@ -201,12 +247,12 @@ comfyui-workflow-templates is not installed.
                 / version.lstrip("v")
             )
             if os.path.exists(expected_path):
-                logging.info(
+                logger.info(
                     f"Using existing copy of specific frontend version tag: {repo_owner}/{repo_name}@{version}"
                 )
                 return expected_path
 
-        logging.info(
+        logger.info(
             f"Initializing frontend: {repo_owner}/{repo_name}@{version}, requesting version details from GitHub..."
         )
 
@@ -220,13 +266,13 @@ comfyui-workflow-templates is not installed.
         if not os.path.exists(web_root):
             try:
                 os.makedirs(web_root, exist_ok=True)
-                logging.info(
+                logger.info(
                     "Downloading frontend(%s) version(%s) to (%s)",
                     provider.folder_name,
                     semantic_version,
                     web_root,
                 )
-                logging.debug(release)
+                logger.debug(release)
                 download_release_asset_zip(release, destination_path=web_root)
             finally:
                 # Clean up the directory if it is empty, i.e. the download failed
@@ -249,7 +295,7 @@ comfyui-workflow-templates is not installed.
         try:
             return cls.init_frontend_unsafe(version_string)
         except Exception as e:
-            logging.error("Failed to initialize frontend: %s", e)
-            logging.info("Falling back to the default frontend.")
+            logger.error("Failed to initialize frontend: %s", e)
+            logger.info("Falling back to the default frontend.")
             check_frontend_version()
             return cls.default_frontend_path()

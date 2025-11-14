@@ -1,12 +1,16 @@
+import os
+
 import torch
 
 from . import diffusers_convert
 from . import latent_formats
 from . import model_base
+from . import model_management
 from . import sd1_clip
 from . import sdxl_clip
 from . import supported_models_base
 from . import utils
+from .text_encoders import ace
 from .text_encoders import aura_t5
 from .text_encoders import cosmos
 from .text_encoders import flux
@@ -15,11 +19,14 @@ from .text_encoders import hunyuan_video
 from .text_encoders import hydit
 from .text_encoders import lt
 from .text_encoders import lumina2
+from .text_encoders import omnigen2
 from .text_encoders import pixart_t5
 from .text_encoders import sa_t5
 from .text_encoders import sd2_clip
 from .text_encoders import sd3_clip
 from .text_encoders import wan
+from .text_encoders import qwen_image
+from .text_encoders import hunyuan_image
 
 
 class SD15(supported_models_base.BASE):
@@ -535,6 +542,7 @@ class SDXL_instructpix2pix(SDXL):
     def get_model(self, state_dict, prefix="", device=None):
         return model_base.SDXL_instructpix2pix(self, model_type=self.model_type(state_dict, prefix), device=device)
 
+
 class LotusD(SD20):
     unet_config = {
         "model_channels": 320,
@@ -550,6 +558,7 @@ class LotusD(SD20):
 
     def get_model(self, state_dict, prefix="", device=None):
         return model_base.Lotus(self, device=device)
+
 
 class SD3(supported_models_base.BASE):
     unet_config = {
@@ -743,7 +752,8 @@ class Flux(supported_models_base.BASE):
     unet_extra_config = {}
     latent_format = latent_formats.Flux
 
-    memory_usage_factor = 2.4
+    # TODO: debug why flux mem usage is so weird on windows.
+    memory_usage_factor = 3.1 if os.name == 'nt' else 2.4
 
     supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
 
@@ -839,6 +849,10 @@ class LTXV(supported_models_base.BASE):
     vae_key_prefix = ["vae."]
     text_encoder_key_prefix = ["text_encoders."]
 
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        self.memory_usage_factor = (unet_config.get("cross_attention_dim", 2048) / 2048) * 5.5
+
     def get_model(self, state_dict, prefix="", device=None):
         out = model_base.LTXV(self, device=device)
         return out
@@ -912,6 +926,7 @@ class HunyuanVideoI2V(HunyuanVideo):
         out = model_base.HunyuanVideoI2V(self, device=device)
         return out
 
+
 class HunyuanVideoSkyreelsI2V(HunyuanVideo):
     unet_config = {
         "image_model": "hunyuan_video",
@@ -968,6 +983,52 @@ class CosmosI2V(CosmosT2V):
         return out
 
 
+class CosmosT2IPredict2(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "cosmos_predict2",
+        "in_channels": 16,
+    }
+
+    sampling_settings = {
+        "sigma_data": 1.0,
+        "sigma_max": 80.0,
+        "sigma_min": 0.002,
+    }
+
+    unet_extra_config = {}
+    latent_format = latent_formats.Wan21
+
+    memory_usage_factor = 1.0
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        self.memory_usage_factor = (unet_config.get("model_channels", 2048) / 2048) * 0.9
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.CosmosPredict2(self, device=device)
+        return out
+
+    def clip_target(self, state_dict=None):
+        if state_dict is None:
+            state_dict = {}
+        pref = self.text_encoder_key_prefix[0]
+        t5_detect = sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
+        return supported_models_base.ClipTarget(cosmos.CosmosT5Tokenizer, cosmos.te(**t5_detect))
+
+
+class CosmosI2VPredict2(CosmosT2IPredict2):
+    unet_config = {
+        "image_model": "cosmos_predict2",
+        "in_channels": 17,
+    }
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.CosmosPredict2(self, image_to_video=True, device=device)
+        return out
+
+
 class Lumina2(supported_models_base.BASE):
     unet_config = {
         "image_model": "lumina2",
@@ -1013,7 +1074,7 @@ class WAN21_T2V(supported_models_base.BASE):
     unet_extra_config = {}
     latent_format = latent_formats.Wan21
 
-    memory_usage_factor = 1.0
+    memory_usage_factor = 0.9
 
     supported_inference_dtypes = [torch.float16, torch.bfloat16, torch.float32]
 
@@ -1022,7 +1083,7 @@ class WAN21_T2V(supported_models_base.BASE):
 
     def __init__(self, unet_config):
         super().__init__(unet_config)
-        self.memory_usage_factor = self.unet_config.get("dim", 2000) / 2000
+        self.memory_usage_factor = self.unet_config.get("dim", 2000) / 2222
 
     def get_model(self, state_dict, prefix="", device=None):
         out = model_base.WAN21(self, device=device)
@@ -1059,15 +1120,98 @@ class WAN21_FunControl2V(WAN21_T2V):
         out = model_base.WAN21(self, image_to_video=False, device=device)
         return out
 
+
+class WAN21_Camera(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "camera",
+        "in_dim": 32,
+    }
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_Camera(self, image_to_video=False, device=device)
+        return out
+
+
+class WAN22_Camera(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "camera_2.2",
+        "in_dim": 36,
+    }
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_Camera(self, image_to_video=False, device=device)
+        return out
+
+
 class WAN21_Vace(WAN21_T2V):
     unet_config = {
         "image_model": "wan2.1",
         "model_type": "vace",
     }
 
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        self.memory_usage_factor = 1.2 * self.memory_usage_factor
+
     def get_model(self, state_dict, prefix="", device=None):
         out = model_base.WAN21_Vace(self, image_to_video=False, device=device)
         return out
+
+
+class WAN21_HuMo(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "humo",
+    }
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_HuMo(self, image_to_video=False, device=device)
+        return out
+
+
+class WAN22_S2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "s2v",
+    }
+
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN22_S2V(self, device=device)
+        return out
+
+
+class WAN22_Animate(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "animate",
+    }
+
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN22_Animate(self, device=device)
+        return out
+
+
+class WAN22_T2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "t2v",
+        "out_dim": 48,
+    }
+
+    latent_format = latent_formats.Wan22
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN22(self, image_to_video=True, device=device)
+        return out
+
 
 class Hunyuan3Dv2(supported_models_base.BASE):
     unet_config = {
@@ -1096,8 +1240,23 @@ class Hunyuan3Dv2(supported_models_base.BASE):
         out = model_base.Hunyuan3Dv2(self, device=device)
         return out
 
-    def clip_target(self, state_dict={}):
+    def clip_target(self, state_dict=None):
+        if state_dict is None:
+            state_dict = {}
         return None
+
+
+class Hunyuan3Dv2_1(Hunyuan3Dv2):
+    unet_config = {
+        "image_model": "hunyuan3d2_1",
+    }
+
+    latent_format = latent_formats.Hunyuan3Dv2_1
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.Hunyuan3Dv2_1(self, device=device)
+        return out
+
 
 class Hunyuan3Dv2mini(Hunyuan3Dv2):
     unet_config = {
@@ -1106,6 +1265,7 @@ class Hunyuan3Dv2mini(Hunyuan3Dv2):
     }
 
     latent_format = latent_formats.Hunyuan3Dv2mini
+
 
 class HiDream(supported_models_base.BASE):
     unet_config = {
@@ -1133,10 +1293,196 @@ class HiDream(supported_models_base.BASE):
         out = model_base.HiDream(self, device=device)
         return out
 
+    def clip_target(self, state_dict=None):
+        if state_dict is None:
+            state_dict = {}
+        return None  # TODO
+
+
+class Chroma(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "chroma",
+    }
+
+    unet_extra_config = {
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+    }
+
+    latent_format = latent_formats.Flux
+
+    memory_usage_factor = 3.2
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.Chroma(self, device=device)
+        return out
+
+    def clip_target(self, state_dict=None):
+        if state_dict is None:
+            state_dict = {}
+        pref = self.text_encoder_key_prefix[0]
+        t5_detect = sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
+        return supported_models_base.ClipTarget(pixart_t5.PixArtTokenizer, pixart_t5.pixart_te(**t5_detect))
+
+
+class ChromaRadiance(Chroma):
+    unet_config = {
+        "image_model": "chroma_radiance",
+    }
+
+    latent_format = latent_formats.ChromaRadiance
+
+    # Pixel-space model, no spatial compression for model input.
+    memory_usage_factor = 0.038
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.ChromaRadiance(self, device=device)
+
+
+class ACEStep(supported_models_base.BASE):
+    unet_config = {
+        "audio_model": "ace",
+    }
+
+    unet_extra_config = {
+    }
+
+    sampling_settings = {
+        "shift": 3.0,
+    }
+
+    latent_format = latent_formats.ACEAudio
+
+    memory_usage_factor = 0.5
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.ACEStep(self, device=device)
+        return out
+
+    def clip_target(self, state_dict=None):
+        if state_dict is None:
+            state_dict = {}
+        return supported_models_base.ClipTarget(ace.AceT5Tokenizer, ace.AceT5Model)
+
+
+class Omnigen2(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "omnigen2",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 2.6,
+    }
+
+    memory_usage_factor = 1.65  # TODO
+
+    unet_extra_config = {}
+    latent_format = latent_formats.Flux
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        if model_management.extended_fp16_support():
+            self.supported_inference_dtypes = [torch.float16] + self.supported_inference_dtypes
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.Omnigen2(self, device=device)
+        return out
+
     def clip_target(self, state_dict={}):
-        return None #  TODO
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen25_3b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(omnigen2.Omnigen2Tokenizer, omnigen2.te(**hunyuan_detect))
 
 
-models = [LotusD, Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, PixArtAlpha, PixArtSigma, HunyuanDiT, HunyuanDiT1, FluxInpaint, Flux, FluxSchnell, GenmoMochi, LTXV, HunyuanVideoSkyreelsI2V, HunyuanVideoI2V, HunyuanVideo, CosmosT2V, CosmosI2V, Lumina2, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, Hunyuan3Dv2mini, Hunyuan3Dv2, HiDream]
+class QwenImage(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "qwen_image",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+    memory_usage_factor = 1.8  # TODO
+
+    unet_extra_config = {}
+    latent_format = latent_formats.Wan21
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.QwenImage(self, device=device)
+        return out
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen25_7b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(qwen_image.QwenImageTokenizer, qwen_image.te(**hunyuan_detect))
+
+
+class HunyuanImage21(HunyuanVideo):
+    unet_config = {
+        "image_model": "hunyuan_video",
+        "vec_in_dim": None,
+    }
+
+    sampling_settings = {
+        "shift": 5.0,
+    }
+
+    latent_format = latent_formats.HunyuanImage21
+
+    memory_usage_factor = 7.7
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.HunyuanImage21(self, device=device)
+        return out
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen25_7b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(hunyuan_image.HunyuanImageTokenizer, hunyuan_image.te(**hunyuan_detect))
+
+
+class HunyuanImage21Refiner(HunyuanVideo):
+    unet_config = {
+        "image_model": "hunyuan_video",
+        "patch_size": [1, 1, 1],
+        "vec_in_dim": None,
+    }
+
+    sampling_settings = {
+        "shift": 4.0,
+    }
+
+    latent_format = latent_formats.HunyuanImage21Refiner
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.HunyuanImage21Refiner(self, device=device)
+        return out
+
+
+models = [LotusD, Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, PixArtAlpha, PixArtSigma, HunyuanDiT, HunyuanDiT1, FluxInpaint, Flux, FluxSchnell, GenmoMochi, LTXV, HunyuanImage21Refiner, HunyuanImage21, HunyuanVideoSkyreelsI2V, HunyuanVideoI2V, HunyuanVideo, CosmosT2V, CosmosI2V, CosmosT2IPredict2, CosmosI2VPredict2, Lumina2, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate, Hunyuan3Dv2mini, Hunyuan3Dv2, Hunyuan3Dv2_1, HiDream, Chroma, ChromaRadiance, ACEStep, Omnigen2, QwenImage]
 
 models += [SVD_img2vid]
