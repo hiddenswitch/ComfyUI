@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Final, Set
 
 # enable better transfer
-os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
 
 import tqdm
 from huggingface_hub import hf_hub_download, scan_cache_dir, snapshot_download, HfFileSystem
