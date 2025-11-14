@@ -10,7 +10,7 @@ It will enable command line argument parsing. If this isn't desired, you must au
 import os
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
 os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
 os.environ["TORCHINDUCTOR_AUTOGRAD_CACHE"] = "1"
 os.environ["BITSANDBYTES_NOWELCOME"] = "1"
