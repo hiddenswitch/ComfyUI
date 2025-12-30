@@ -9,10 +9,9 @@ logger = logging.getLogger(__name__)
 
 try:
     rms_norm_torch = torch.nn.functional.rms_norm  # pylint: disable=no-member
-    RMSNorm = torch.nn.RMSNorm # pylint: disable=no-member
+    RMSNorm = torch.nn.RMSNorm  # pylint: disable=no-member
 except:
     rms_norm_torch = None
-    logger.debug("Please update pytorch to use native RMSNorm")
 
 
 def rms_norm(x, weight=None, eps=1e-6):
@@ -22,7 +21,7 @@ def rms_norm(x, weight=None, eps=1e-6):
         else:
             return rms_norm_torch(x, weight.shape, weight=cast_to(weight, dtype=x.dtype, device=x.device), eps=eps)
     else:
-        r = x * torch.rsqrt(torch.mean(x**2, dim=-1, keepdim=True) + eps)
+        r = x * torch.rsqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + eps)
         if weight is None:
             return r
         else:
@@ -32,12 +31,12 @@ def rms_norm(x, weight=None, eps=1e-6):
 if RMSNorm is None:
     class RMSNorm(torch.nn.Module):
         def __init__(
-            self,
-            normalized_shape,
-            eps=1e-6,
-            elementwise_affine=True,
-            device=None,
-            dtype=None,
+                self,
+                normalized_shape,
+                eps=1e-6,
+                elementwise_affine=True,
+                device=None,
+                dtype=None,
         ):
             factory_kwargs = {"device": device, "dtype": dtype}
             super().__init__()

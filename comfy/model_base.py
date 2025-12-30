@@ -1154,7 +1154,7 @@ class Lumina2(BaseModel):
             if 'num_tokens' not in out:
                 out['num_tokens'] = conds.CONDConstant(cross_attn.shape[1])
 
-        clip_text_pooled = kwargs["pooled_output"]  # Newbie
+        clip_text_pooled = kwargs.get("pooled_output", None)  # NewBie
         if clip_text_pooled is not None:
             out['clip_text_pooled'] = conds.CONDRegular(clip_text_pooled)
         return out
@@ -1552,7 +1552,7 @@ class QwenImage(BaseModel):
 
 class HunyuanImage21(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
-        super().__init__(model_config, model_type, device=device, unet_model=HunyuanVideo)
+        super().__init__(model_config, model_type, device=device, unet_model=HunyuanVideoModel)
 
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
