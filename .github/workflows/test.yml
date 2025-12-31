@@ -68,7 +68,7 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          pytest -v tests/unit
+          pytest -v tests/unit tests/inference
   build_and_execute_amd:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
@@ -117,7 +117,49 @@ jobs:
           # only use dGPU
           cd ${GITHUB_WORKSPACE}/src
           export HIP_VISIBLE_DEVICES=1
-          pytest -v tests/unit
+          pytest -v tests/unit tests/inference
+  build_and_execute_intel:
+    environment: "Testing"
+    name: ${{ matrix.runner.friendly_name }}
+    runs-on: ${{ matrix.runner.labels }}
+    container: ${{ matrix.runner.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - labels: [self-hosted, Linux, X64, ipex-a380-6gb]
+            friendly_name: "Python IPEX 2.8.10 XPU"
+            container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
+    steps:
+      - run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+        name: Install uv
+      - uses: actions/checkout@v4
+        name: Checkout git repo
+        with:
+          path: src
+      - run: |
+          apt-get update && apt-get install -y libsndfile1 --no-install-recommends
+        name: sndfile Dependency
+      - name: Write Overrides
+        run: |
+          echo ${GITHUB_WORKSPACE}
+          touch overrides.txt
+          uv pip freeze | grep -E 'torch|intel|numpy|opencv' >> overrides.txt
+          echo "sentry-sdk; python_version < '0'" >> overrides.txt
+      - name: Install ComfyUI
+        run: |
+          export UV_PRERELEASE=allow
+          export UV_OVERRIDE=overrides.txt
+          uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
+      - name: Lint for errors
+        run: |
+          cd ${GITHUB_WORKSPACE}/src
+          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+      - name: Run unit tests
+        run: |
+          cd ${GITHUB_WORKSPACE}/src
+          pytest -v tests/unit tests/inference
   build_and_execute_macos:
     environment: "Testing"
     name: Installation Test for macOS
