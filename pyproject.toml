@@ -144,6 +144,7 @@ dev = [
     "pylint",
     "astroid",
     "nvidia-ml-py",
+    "requests",
 ]
 
 comfyui-manager = [

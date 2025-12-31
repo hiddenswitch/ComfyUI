@@ -178,7 +178,11 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          pytest -v tests/unit tests/inference
+          pytest -v tests/unit
+      - name: Run inference tests
+        run: |
+          cd ${GITHUB_WORKSPACE}/src
+          pytest -v tests/inference
   build_and_execute_macos:
     environment: "Testing"
     name: Installation Test for macOS

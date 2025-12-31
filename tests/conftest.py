@@ -62,9 +62,10 @@ def has_gpu() -> bool:
     if not has_gpu:
         # ipex
         try:
+            import torch
             import intel_extension_for_pytorch as ipex
-            has_gpu = ipex.xpu.device_count() > 0
-        except ImportError:
+            has_gpu = torch.xpu.device_count() > 0
+        except (ImportError, AttributeError):
             has_gpu = False
 
         if not has_gpu:
