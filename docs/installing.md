@@ -85,7 +85,7 @@ uv pip install --torch-backend=auto --upgrade "comfyui@git+https://github.com/hi
 
 5. Run the following command to install `comfyui` into your current environment. The `mps` extra improves performance.
    ```shell
-   uv pip install "comfyui[mps]@git+https://github.com/hiddenswitch/ComfyUI.git"
+   uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
    ```
 6. To run the web server:
    ```shell
@@ -185,7 +185,7 @@ caddy reverse-proxy --from localhost:443 --to localhost:8188 --tls self_signed
 
 Installation for `ROCm` should be explicit:
 ```shell
-uv pip install "comfyui[rocm]@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 ```
 
 Then, until a workaround is found, specify these variables:
