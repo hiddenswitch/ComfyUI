@@ -68,7 +68,11 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          pytest -v tests/unit tests/inference
+          pytest -v tests/unit
+      - name: Run inference tests
+        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
+        run: |
+          pytest -v tests/inference
   build_and_execute_amd:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
@@ -88,6 +92,8 @@ jobs:
       - name: Align ROCm to Image
         run: |
           # our testing infrastructure uses RX 7XXX GPUs, this includes express support for gfx1102, gfx1101 which will resolve crashes
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ "rocm[libraries]<7.9" "torch==2.7.1+rocm7.0.0rc20250922" "torchaudio==2.7.1a0+rocm7.0.0rc20250922" "torchvision==0.22.1+rocm7.0.0rc20250922" "pytorch_triton_rocm" --pre
       - uses: actions/checkout@v4
@@ -99,15 +105,19 @@ jobs:
         name: sndfile Dependency
       - name: Write Overrides
         run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
           uv pip freeze | grep -E 'torch|rocm|numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
-          uv pip install "comfyui[rocm,dev]@${GITHUB_WORKSPACE}/src"
+          uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
       - name: Lint for errors
         run: |
           cd ${GITHUB_WORKSPACE}/src
@@ -116,7 +126,12 @@ jobs:
         run: |
           # only use dGPU
           cd ${GITHUB_WORKSPACE}/src
-          pytest -v tests/unit tests/inference
+          pytest -v tests/unit
+      - name: Run inference tests
+        run: |
+          # only use dGPU
+          cd ${GITHUB_WORKSPACE}/src
+          pytest -v tests/inference
   build_and_execute_intel:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
@@ -143,12 +158,16 @@ jobs:
         name: sndfile Dependency
       - name: Write Overrides
         run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
           uv pip freeze | grep -E 'torch|intel|numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
