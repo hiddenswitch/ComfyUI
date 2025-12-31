@@ -132,6 +132,7 @@ jobs:
             container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
     steps:
       - run: |
+          apt-get update && apt-get install -y curl
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
       - uses: actions/checkout@v4
