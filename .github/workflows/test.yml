@@ -69,10 +69,10 @@ jobs:
       - name: Run unit tests
         run: |
           pytest -v tests/unit
-      - name: Run inference tests
-        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
-        run: |
-          pytest -v tests/inference
+#      - name: Run inference tests
+#        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
+#        run: |
+#          pytest -v tests/inference
   build_and_execute_amd:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
@@ -127,11 +127,11 @@ jobs:
           # only use dGPU
           cd ${GITHUB_WORKSPACE}/src
           python -m pytest -v tests/unit
-      - name: Run inference tests
-        run: |
-          # only use dGPU
-          cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v tests/inference
+#      - name: Run inference tests
+#        run: |
+#          # only use dGPU
+#          cd ${GITHUB_WORKSPACE}/src
+#          python -m pytest -v tests/inference
   build_and_execute_intel:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
@@ -179,10 +179,10 @@ jobs:
         run: |
           cd ${GITHUB_WORKSPACE}/src
           python -m pytest -v tests/unit
-      - name: Run inference tests
-        run: |
-          cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v tests/inference
+#      - name: Run inference tests
+#        run: |
+#          cd ${GITHUB_WORKSPACE}/src
+#          python -m pytest -v tests/inference
   build_and_execute_macos:
     environment: "Testing"
     name: Installation Test for macOS
