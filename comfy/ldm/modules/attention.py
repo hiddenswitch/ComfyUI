@@ -30,6 +30,14 @@ except (ImportError, ModuleNotFoundError) as e:
     if e.name == "sageattention" and model_management.sage_attention_enabled():
         logger.debug(f"To use the `--use-sage-attention` feature, the `sageattention` package must be installed first.")
 
+sageattn3_blackwell = torch.nn.functional.scaled_dot_product_attention
+SAGE_ATTENTION3_IS_AVAILABLE = False
+try:
+    from sageattn3 import sageattn3_blackwell
+    SAGE_ATTENTION3_IS_AVAILABLE = True
+except ImportError:
+    pass
+
 flash_attn_func = torch.nn.functional.scaled_dot_product_attention
 FLASH_ATTENTION_IS_AVAILABLE = False
 try:
@@ -603,6 +611,93 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
             out = out.reshape(b, -1, heads * dim_head)
     return out
 
+@wrap_attn
+def attention3_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+    exception_fallback = False
+    if (q.device.type != "cuda" or
+        q.dtype not in (torch.float16, torch.bfloat16) or
+        mask is not None):
+        return attention_pytorch(
+            q, k, v, heads,
+            mask=mask,
+            attn_precision=attn_precision,
+            skip_reshape=skip_reshape,
+            skip_output_reshape=skip_output_reshape,
+            **kwargs
+        )
+
+    if skip_reshape:
+        B, H, L, D = q.shape
+        if H != heads:
+            return attention_pytorch(
+                q, k, v, heads,
+                mask=mask,
+                attn_precision=attn_precision,
+                skip_reshape=True,
+                skip_output_reshape=skip_output_reshape,
+                **kwargs
+            )
+        q_s, k_s, v_s = q, k, v
+        N = q.shape[2]
+        dim_head = D
+    else:
+        B, N, inner_dim = q.shape
+        if inner_dim % heads != 0:
+            return attention_pytorch(
+                q, k, v, heads,
+                mask=mask,
+                attn_precision=attn_precision,
+                skip_reshape=False,
+                skip_output_reshape=skip_output_reshape,
+                **kwargs
+            )
+        dim_head = inner_dim // heads
+
+    if dim_head >= 256 or N <= 1024:
+        return attention_pytorch(
+                q, k, v, heads,
+                mask=mask,
+                attn_precision=attn_precision,
+                skip_reshape=skip_reshape,
+                skip_output_reshape=skip_output_reshape,
+                **kwargs
+            )
+
+    if not skip_reshape:
+        q_s, k_s, v_s = map(
+            lambda t: t.view(B, -1, heads, dim_head).permute(0, 2, 1, 3).contiguous(),
+            (q, k, v),
+        )
+        B, H, L, D = q_s.shape
+
+    try:
+        out = sageattn3_blackwell(q_s, k_s, v_s, is_causal=False)
+    except Exception as e:
+        exception_fallback = True
+        logging.error("Error running SageAttention3: %s, falling back to pytorch attention.", e)
+
+    if exception_fallback:
+        if not skip_reshape:
+            del q_s, k_s, v_s
+        return attention_pytorch(
+                q, k, v, heads,
+                mask=mask,
+                attn_precision=attn_precision,
+                skip_reshape=False,
+                skip_output_reshape=skip_output_reshape,
+                **kwargs
+            )
+
+    if skip_reshape:
+        if not skip_output_reshape:
+            out = out.permute(0, 2, 1, 3).reshape(B, L, H * D)
+    else:
+        if skip_output_reshape:
+            pass
+        else:
+            out = out.permute(0, 2, 1, 3).reshape(B, L, H * D)
+
+    return out
 
 try:
     @torch.library.custom_op("flash_attention::flash_attn", mutates_args=())
@@ -694,6 +789,8 @@ optimized_attention_no_sage_masked = optimized_attention_no_sage
 # register core-supported attention functions
 if SAGE_ATTENTION_IS_AVAILABLE:
     register_attention_function("sage", attention_sage)
+if SAGE_ATTENTION3_IS_AVAILABLE:
+    register_attention_function("sage3", attention3_sage)
 if FLASH_ATTENTION_IS_AVAILABLE:
     register_attention_function("flash", attention_flash)
 if model_management.xformers_enabled():

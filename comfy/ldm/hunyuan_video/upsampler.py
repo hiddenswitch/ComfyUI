@@ -3,7 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ..modules.diffusionmodules.model import ResnetBlock, VideoConv3d
 from .vae_refiner import RMS_norm
-from ... import model_management, model_patcher
+from ...model_management import vae_device, vae_offload_device, load_model_gpu, vae_dtype
+from ...model_patcher import ModelPatcher
+
 
 class SRResidualCausalBlock3D(nn.Module):
     def __init__(self, channels: int):
@@ -19,14 +21,15 @@ class SRResidualCausalBlock3D(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.block(x)
 
+
 class SRModel3DV2(nn.Module):
     def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        hidden_channels: int = 64,
-        num_blocks: int = 6,
-        global_residual: bool = False,
+            self,
+            in_channels: int,
+            out_channels: int,
+            hidden_channels: int = 64,
+            num_blocks: int = 6,
+            global_residual: bool = False,
     ):
         super().__init__()
         self.in_conv = VideoConv3d(in_channels, hidden_channels, kernel_size=3)
@@ -47,11 +50,11 @@ class SRModel3DV2(nn.Module):
 
 class Upsampler(nn.Module):
     def __init__(
-        self,
-        z_channels: int,
-        out_channels: int,
-        block_out_channels: tuple[int, ...],
-        num_res_blocks: int = 2,
+            self,
+            z_channels: int,
+            out_channels: int,
+            block_out_channels: tuple[int, ...],
+            num_res_blocks: int = 2,
     ):
         super().__init__()
         self.num_res_blocks = num_res_blocks
@@ -66,11 +69,11 @@ class Upsampler(nn.Module):
         for i, tgt in enumerate(block_out_channels):
             stage = nn.Module()
             stage.block = nn.ModuleList([ResnetBlock(in_channels=ch if j == 0 else tgt,
-                                                    out_channels=tgt,
-                                                    temb_channels=0,
-                                                    conv_shortcut=False,
-                                                    conv_op=VideoConv3d, norm_op=RMS_norm)
-                                        for j in range(num_res_blocks + 1)])
+                                                     out_channels=tgt,
+                                                     temb_channels=0,
+                                                     conv_shortcut=False,
+                                                     conv_op=VideoConv3d, norm_op=RMS_norm)
+                                         for j in range(num_res_blocks + 1)])
             ch = tgt
             self.up.append(stage)
 
@@ -95,20 +98,22 @@ class Upsampler(nn.Module):
         out = self.conv_out(F.silu(self.norm_out(x)))
         return out
 
+
 UPSAMPLERS = {
     "720p": SRModel3DV2,
     "1080p": Upsampler,
 }
 
+
 class HunyuanVideo15SRModel():
     def __init__(self, model_type, config):
-        self.load_device = model_management.vae_device()
-        offload_device = model_management.vae_offload_device()
-        self.dtype = model_management.vae_dtype(self.load_device)
+        self.load_device = vae_device()
+        offload_device = vae_offload_device()
+        self.dtype = vae_dtype(self.load_device)
         self.model_class = UPSAMPLERS.get(model_type)
         self.model = self.model_class(**config).eval()
 
-        self.patcher = model_patcher.ModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = ModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=True)
@@ -117,5 +122,5 @@ class HunyuanVideo15SRModel():
         return self.model.state_dict()
 
     def resample_latent(self, latent):
-        model_management.load_model_gpu(self.patcher)
+        load_model_gpu(self.patcher)
         return self.model(latent.to(self.load_device))

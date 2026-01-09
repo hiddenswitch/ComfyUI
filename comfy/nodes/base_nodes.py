@@ -314,8 +314,12 @@ class VAEDecode:
     def decode(self, vae, samples):
         if samples is None:
             return None,
-        images = vae.decode(samples["samples"])
-        if len(images.shape) == 5:  # Combine batches
+        latent = samples["samples"]
+        if latent.is_nested:
+            latent = latent.unbind()[0]
+
+        images = vae.decode(latent)
+        if len(images.shape) == 5: #Combine batches
             images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
         return (images,)
 
@@ -1053,7 +1057,7 @@ class DualCLIPLoader:
     def INPUT_TYPES(s):
         return {"required": {"clip_name1": (get_filename_list_with_downloadable("text_encoders"),), "clip_name2": (
             get_filename_list_with_downloadable("text_encoders"),),
-                             "type": (["sdxl", "sd3", "flux", "hunyuan_video", "hidream", "hunyuan_image", "hunyuan_video_15", "kandinsky5", "kandinsky5_image", "newbie"],),
+                             "type": (["sdxl", "sd3", "flux", "hunyuan_video", "hidream", "hunyuan_image", "hunyuan_video_15", "kandinsky5", "kandinsky5_image", "ltxv", "newbie"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),
@@ -1845,7 +1849,10 @@ class LoadImage:
                 output_images.append(image)
                 output_masks.append(mask.unsqueeze(0))
 
-        if len(output_images) > 1 and img.format not in excluded_formats:
+            if img.format == "MPO":
+                break  # ignore all frames except the first one for MPO format
+
+        if len(output_images) > 1:
             output_image = torch.cat(output_images, dim=0)
             output_mask = torch.cat(output_masks, dim=0)
         else:
@@ -2008,6 +2015,7 @@ class ImageBatch:
     FUNCTION = "batch"
 
     CATEGORY = "image"
+    DEPRECATED = True
 
     def batch(self, image1, image2):
         if image1.shape[-1] != image2.shape[-1]:

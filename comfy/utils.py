@@ -1480,7 +1480,7 @@ def unpack_latents(combined_latent, latent_shapes):
             combined_latent = combined_latent[:, :, cut:]
             output_tensors.append(tens.reshape([tens.shape[0]] + list(shape)[1:]))
     else:
-        output_tensors = combined_latent
+        output_tensors = [combined_latent]
     return output_tensors
 
 
@@ -1514,6 +1514,8 @@ def convert_old_quants(state_dict, model_prefix="", metadata={}):
             out_sd = {}
             layers = {}
             for k in list(state_dict.keys()):
+                if k == scaled_fp8_key:
+                    continue
                 if not k.startswith(model_prefix):
                     out_sd[k] = state_dict[k]
                     continue

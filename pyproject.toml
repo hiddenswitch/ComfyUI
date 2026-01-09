@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.6.0"
+version = "0.8.2"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -19,8 +19,9 @@ classifiers = [
 
 dependencies = [
     "comfyui-frontend-package>=1.35.9",
-    "comfyui-workflow-templates>=0.7.64",
+    "comfyui-workflow-templates>=0.7.79",
     "comfyui-embedded-docs>=0.3.1",
+    "comfy_kitchen>=0.2.5",
     "torch",
     "torchvision",
     "torchdiffeq>=0.2.3",
@@ -175,10 +176,14 @@ lint.select = [
     "N805", # invalid-first-argument-name-for-method
     "S307", # suspicious-eval-usage
     "S102", # exec
-    "T", # print-usage
+    "E",
+  "T", # print-usage
     "W", # pycodestyle Warnings
     "F", # Pyflakes
 ]
+
+lint.ignore = ["E501", "E722", "E731", "E712", "E402", "E741"]
+
 exclude = ["*.ipynb", "**/generated/*.pyi"]
 
 [tool.hatch.metadata]

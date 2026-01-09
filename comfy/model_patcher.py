@@ -838,6 +838,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
                             continue
 
                 cast_weight = self.force_cast_weights
+                m.comfy_force_cast_weights = self.force_cast_weights
                 if lowvram_weight:
                     if hasattr(m, "comfy_cast_weights"):
                         m.weight_function = []
@@ -911,13 +912,14 @@ class ModelPatcher(ModelManageable, PatchSupport):
                 for param in params:
                     self.pin_weight_to_device("{}.{}".format(n, param))
 
+            usable_stat = "{:.2f} MB usable,".format(lowvram_model_memory / (1024 * 1024)) if lowvram_model_memory < 1e32 else ""
             if lowvram_counter > 0:
-                logger.debug(f"loaded partially lowvram_model_memory={lowvram_model_memory / (1024 * 1024):.1f}MB mem_counter={mem_counter / (1024 * 1024):.1f}MB patch_counter={patch_counter}")
+                logger.debug(f"loaded partially usable_stat={usable_stat} lowvram_model_memory={lowvram_model_memory / (1024 * 1024):.1f}MB mem_counter={mem_counter / (1024 * 1024):.1f}MB patch_counter={patch_counter}")
                 if hasattr(self.model, "model_lovram"):
                     self.model.model_lowvram = True
                 self._memory_measurements.model_lowvram = True
             else:
-                logger.debug(f"loaded completely lowvram_model_memory={lowvram_model_memory / (1024 * 1024):.1f}MB mem_counter={mem_counter / (1024 * 1024):.1f}MB full_load={full_load}")
+                logger.debug(f"loaded completely usable_stat={usable_stat} lowvram_model_memory={lowvram_model_memory / (1024 * 1024):.1f}MB mem_counter={mem_counter / (1024 * 1024):.1f}MB full_load={full_load}")
                 if hasattr(self.model, "model_lovram"):
                     self.model.model_lowvram = False
                 self._memory_measurements.model_lowvram = False
