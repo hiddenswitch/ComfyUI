@@ -1,6 +1,8 @@
 import torch
 import logging
 
+from .float import stochastic_rounding as stochastic_rounding_fn
+
 logger = logging.getLogger(__name__)
 
 try:

@@ -45,17 +45,19 @@ class LTXAVGemmaTokenizer(sd1_clip.SD1Tokenizer):
 
 
 class Gemma3_12BModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="all", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
+    def __init__(self, device="cpu", layer="all", layer_idx=None, textmodel_json_config=None, dtype=None, attention_mask=True, model_options={}):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         llama_quantization_metadata = model_options.get("llama_quantization_metadata", None)
         if llama_quantization_metadata is not None:
             model_options = model_options.copy()
             model_options["quantization_metadata"] = llama_quantization_metadata
 
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=Gemma3_12B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=Gemma3_12B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
     def tokenize_with_weights(self, text, return_word_ids=False, llama_template="{}", image_embeds=None, **kwargs):
         text = llama_template.format(text)
-        text_tokens = super().tokenize_with_weights(text, return_word_ids)
+        text_tokens = super().tokenize_with_weights(text, return_word_ids)  # pylint: disable=no-member
         embed_count = 0
         for k in text_tokens:
             tt = text_tokens[k]

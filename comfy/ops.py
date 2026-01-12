@@ -759,7 +759,7 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                         # dtype is now implicit in the layout class
                         scale = getattr(self, 'input_scale', None)
                         if scale is not None:
-                            scale = comfy.model_management.cast_to_device(scale, input.device, None)
+                            scale = model_management.cast_to_device(scale, input.device, None)
                         input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
 
                 output = self.forward_comfy_cast_weights(input)
@@ -810,7 +810,7 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         # todo: check a context here, since this isn't being used by any callers yet
         inference_mode = current_execution_context().inference_mode
     fp8_compute = model_management.supports_fp8_compute(load_device)  # TODO: if we support more ops this needs to be more granular
-    nvfp4_compute = comfy.model_management.supports_nvfp4_compute(load_device)
+    nvfp4_compute = model_management.supports_nvfp4_compute(load_device)
 
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
         logger.info("Using mixed precision operations")

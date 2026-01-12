@@ -2,18 +2,17 @@ import json
 from dataclasses import dataclass
 import math
 import torch
-import torchaudio
 
 import comfy.model_management
 import comfy.model_patcher
 import comfy.utils as utils
-from comfy.ldm.mmaudio.vae.distributions import DiagonalGaussianDistribution
-from comfy.ldm.lightricks.symmetric_patchifier import AudioPatchifier
-from comfy.ldm.lightricks.vae.causal_audio_autoencoder import (
+from ...mmaudio.vae.distributions import DiagonalGaussianDistribution
+from ..symmetric_patchifier import AudioPatchifier
+from .causal_audio_autoencoder import (
     CausalityAxis,
     CausalAudioAutoencoder,
 )
-from comfy.ldm.lightricks.vocoders.vocoder import Vocoder
+from ..vocoders.vocoder import Vocoder
 
 LATENT_DOWNSAMPLE_FACTOR = 4
 
@@ -101,6 +100,7 @@ class AudioPreprocessor:
     def resample(self, waveform: torch.Tensor, source_rate: int) -> torch.Tensor:
         if source_rate == self.target_sample_rate:
             return waveform
+        import torchaudio  # pylint: disable=import-error
         return torchaudio.functional.resample(waveform, source_rate, self.target_sample_rate)
 
     @staticmethod
@@ -118,6 +118,7 @@ class AudioPreprocessor:
         waveform = self.resample(waveform, waveform_sample_rate)
         waveform = self.normalize_amplitude(waveform)
 
+        import torchaudio  # pylint: disable=import-error
         mel_transform = torchaudio.transforms.MelSpectrogram(
             sample_rate=self.target_sample_rate,
             n_fft=self.n_fft,

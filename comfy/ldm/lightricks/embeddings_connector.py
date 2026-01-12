@@ -3,7 +3,7 @@ from typing import Optional
 
 import comfy.ldm.common_dit
 import torch
-from comfy.ldm.lightricks.model import (
+from .model import (
     CrossAttention,
     FeedForward,
     generate_freq_grid_np,

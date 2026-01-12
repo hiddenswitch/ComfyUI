@@ -1,14 +1,14 @@
 from typing import Tuple
 import torch
 import torch.nn as nn
-from comfy.ldm.lightricks.model import (
+from .model import (
     CrossAttention,
     FeedForward,
     AdaLayerNormSingle,
     PixArtAlphaTextProjection,
     LTXVModel,
 )
-from comfy.ldm.lightricks.symmetric_patchifier import AudioPatchifier
+from .symmetric_patchifier import AudioPatchifier
 import comfy.ldm.common_dit
 
 class BasicAVTransformerBlock(nn.Module):

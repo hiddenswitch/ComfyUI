@@ -1849,8 +1849,8 @@ class LoadImage:
                 output_images.append(image)
                 output_masks.append(mask.unsqueeze(0))
 
-            if img.format == "MPO":
-                break  # ignore all frames except the first one for MPO format
+                if img.format == "MPO":
+                    break  # ignore all frames except the first one for MPO format
 
         if len(output_images) > 1:
             output_image = torch.cat(output_images, dim=0)

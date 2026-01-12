@@ -10,9 +10,10 @@ from typing import TypedDict, Literal
 from comfy import utils
 from comfy import model_management
 from comfy import node_helpers
-from comfy_extras.nodes_latent import reshape_latent_to
+from .nodes_latent import reshape_latent_to
 from comfy_api.latest import ComfyExtension, io
 from comfy.nodes.common import MAX_RESOLUTION
+import comfy.utils
 
 
 class Blend(io.ComfyNode):

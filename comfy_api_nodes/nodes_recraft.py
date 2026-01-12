@@ -30,7 +30,7 @@ from comfy_api_nodes.util import (
     tensor_to_bytesio,
     validate_string,
 )
-from comfy_extras.nodes.nodes_images import SVG
+from comfy_api.latest._util.image_types import SVG
 
 
 async def handle_recraft_file_request(

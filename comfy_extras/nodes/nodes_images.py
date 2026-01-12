@@ -1,25 +1,16 @@
 from __future__ import annotations
 
 import json
-import numpy as np
 import os
 import re
-import torch
-from PIL import Image
-from PIL.PngImagePlugin import PngInfo
-from inspect import cleandoc
-from io import BytesIO
-from typing import Literal, Tuple
 
-from comfy import utils
-from comfy.cli_args import args
+import torch
+from typing_extensions import override
+
 from comfy.cmd import folder_paths
-from comfy.comfy_types import IO
-from comfy.component_model.tensor_types import ImageBatch, RGBImageBatch
+from comfy_api.latest import IO, UI, ComfyExtension
 from comfy.execution_context import current_execution_context
-from comfy.nodes.base_nodes import ImageScale
 from comfy.nodes.common import MAX_RESOLUTION
-from comfy.nodes.package_typing import CustomNode
 from comfy.utils import common_upscale
 
 
@@ -32,10 +23,10 @@ class ImageCrop(IO.ComfyNode):
             category="image/transform",
             inputs=[
                 IO.Image.Input("image"),
-                IO.Int.Input("width", default=512, min=1, max=nodes.MAX_RESOLUTION, step=1),
-                IO.Int.Input("height", default=512, min=1, max=nodes.MAX_RESOLUTION, step=1),
-                IO.Int.Input("x", default=0, min=0, max=nodes.MAX_RESOLUTION, step=1),
-                IO.Int.Input("y", default=0, min=0, max=nodes.MAX_RESOLUTION, step=1),
+                IO.Int.Input("width", default=512, min=1, max=MAX_RESOLUTION, step=1),
+                IO.Int.Input("height", default=512, min=1, max=MAX_RESOLUTION, step=1),
+                IO.Int.Input("x", default=0, min=0, max=MAX_RESOLUTION, step=1),
+                IO.Int.Input("y", default=0, min=0, max=MAX_RESOLUTION, step=1),
             ],
             outputs=[IO.Image.Output()],
         )
@@ -384,8 +375,8 @@ class ResizeAndPadImage(IO.ComfyNode):
             category="image/transform",
             inputs=[
                 IO.Image.Input("image"),
-                IO.Int.Input("target_width", default=512, min=1, max=nodes.MAX_RESOLUTION, step=1),
-                IO.Int.Input("target_height", default=512, min=1, max=nodes.MAX_RESOLUTION, step=1),
+                IO.Int.Input("target_width", default=512, min=1, max=MAX_RESOLUTION, step=1),
+                IO.Int.Input("target_height", default=512, min=1, max=MAX_RESOLUTION, step=1),
                 IO.Combo.Input("padding_color", options=["white", "black"]),
                 IO.Combo.Input("interpolation", options=["area", "bicubic", "nearest-exact", "bilinear", "lanczos"]),
             ],
@@ -499,7 +490,7 @@ class GetImageSize(IO.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, image) -> IO.NodeOutput:
+    def execute(cls, image, unique_id=None) -> IO.NodeOutput:
         height = image.shape[1]
         width = image.shape[2]
         batch_size = image.shape[0]
@@ -509,9 +500,6 @@ class GetImageSize(IO.ComfyNode):
             server.send_progress_text(f"width: {width}, height: {height}\n batch size: {batch_size}", unique_id)
 
         return IO.NodeOutput(width, height, batch_size)
-
-    def get_size(self, image, unique_id=None):
-        return width, height, batch_size
 
     get_size = execute  # TODO: remove
 

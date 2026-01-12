@@ -626,6 +626,7 @@ def attention3_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
             **kwargs
         )
 
+    q_s, k_s, v_s = q, k, v  # Initialize to avoid linter warnings; will be reshaped if needed
     if skip_reshape:
         B, H, L, D = q.shape
         if H != heads:
@@ -637,7 +638,6 @@ def attention3_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
                 skip_output_reshape=skip_output_reshape,
                 **kwargs
             )
-        q_s, k_s, v_s = q, k, v
         N = q.shape[2]
         dim_head = D
     else:
