@@ -459,7 +459,7 @@ def test_file_request_parameter_glob(use_temporary_input_directory):
 
 def test_file_request_to_http_url_no_exceptions():
     n = ImageRequestParameter()
-    loaded_image, loaded_mask = n.execute(value="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/A_rainbow_at_sunset_after_rain_in_Gaziantep%2C_Turkey.IMG_2448.jpg/484px-A_rainbow_at_sunset_after_rain_in_Gaziantep%2C_Turkey.IMG_2448.jpg")
+    loaded_image, loaded_mask = n.execute(value="https://picsum.photos/484/480.jpg")
     # This is an RGB jpg, so it will be converted to RGBA
     b, height, width, channels = loaded_image.shape
     assert b == 1
