@@ -1,5 +1,8 @@
-from comfy import model_management
 import math
+
+from comfy import model_management
+from comfy.model_management import load_models_gpu
+
 
 class LTXVLatentUpsampler:
     """
@@ -32,38 +35,53 @@ class LTXVLatentUpsampler:
 
         Args:
             samples (dict): Input latent samples
-            upscale_model (LatentUpsampler): Loaded upscale model
+            upscale_model: Loaded upscale model (either raw model or ModelManageable)
             vae: VAE model for normalization
-            auto_tiling (bool): Whether to automatically tile the input for processing
 
         Returns:
             tuple: Tuple containing the upsampled latent
         """
-        device = model_management.get_torch_device()
-        memory_required = model_management.module_size(upscale_model)
+        from .nodes_latent_upscaler import LatentUpscaleModelManageable
 
-        model_dtype = next(upscale_model.parameters()).dtype
         latents = samples["samples"]
         input_dtype = latents.dtype
 
-        memory_required += math.prod(latents.shape) * 3000.0  # TODO: more accurate
-        model_management.free_memory(memory_required, device)
+        # Check if upscale_model is a ModelManageable or raw model
+        if isinstance(upscale_model, LatentUpscaleModelManageable):
+            # New path: use model management
+            upscale_model.set_input_size_from_latent(latents)
+            load_models_gpu([upscale_model])
 
-        try:
-            upscale_model.to(device)  # TODO: use the comfy model management system.
+            model_dtype = upscale_model.model_dtype()
+            latents = latents.to(dtype=model_dtype, device=upscale_model.current_device)
 
-            latents = latents.to(dtype=model_dtype, device=device)
-
-            """Upsample latents without tiling."""
             latents = vae.first_stage_model.per_channel_statistics.un_normalize(latents)
             upsampled_latents = upscale_model(latents)
-        finally:
-            upscale_model.cpu()
+        else:
+            # Legacy path: manual device management
+            device = model_management.get_torch_device()
+            memory_required = model_management.module_size(upscale_model)
+
+            model_dtype = next(upscale_model.parameters()).dtype
+
+            memory_required += math.prod(latents.shape) * 3000.0  # TODO: more accurate
+            model_management.free_memory(memory_required, device)
+
+            try:
+                upscale_model.to(device)
+
+                latents = latents.to(dtype=model_dtype, device=device)
+
+                latents = vae.first_stage_model.per_channel_statistics.un_normalize(latents)
+                upsampled_latents = upscale_model(latents)
+            finally:
+                upscale_model.cpu()
 
         upsampled_latents = vae.first_stage_model.per_channel_statistics.normalize(
             upsampled_latents
         )
         upsampled_latents = upsampled_latents.to(dtype=input_dtype, device=model_management.intermediate_device())
+
         return_dict = samples.copy()
         return_dict["samples"] = upsampled_latents
         return_dict.pop("noise_mask", None)

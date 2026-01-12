@@ -1,12 +1,11 @@
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-import comfy.ops
+from ....ops import disable_weight_init as ops
 import numpy as np
 
-ops = comfy.ops.disable_weight_init
-
 LRELU_SLOPE = 0.1
+
 
 def get_padding(kernel_size, dilation=1):
     return int((kernel_size * dilation - dilation) / 2)
@@ -146,7 +145,7 @@ class Vocoder(torch.nn.Module):
         for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
             self.ups.append(
                 ops.ConvTranspose1d(
-                    upsample_initial_channel // (2**i),
+                    upsample_initial_channel // (2 ** i),
                     upsample_initial_channel // (2 ** (i + 1)),
                     k,
                     u,

@@ -1,5 +1,5 @@
 from comfy import utils
-from comfy.cmd import folder_paths
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 import torch
 import logging
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ class HypernetworkLoader(IO.ComfyNode):
             category="loaders",
             inputs=[
                 IO.Model.Input("model"),
-                IO.Combo.Input("hypernetwork_name", options=folder_paths.get_filename_list("hypernetworks")),
+                IO.Combo.Input("hypernetwork_name", options=get_filename_list_with_downloadable("hypernetworks")),
                 IO.Float.Input("strength", default=1.0, min=-10.0, max=10.0, step=0.01),
             ],
             outputs=[
@@ -118,7 +118,7 @@ class HypernetworkLoader(IO.ComfyNode):
 
     @classmethod
     def execute(cls, model, hypernetwork_name, strength) -> IO.NodeOutput:
-        hypernetwork_path = folder_paths.get_full_path_or_raise("hypernetworks", hypernetwork_name)
+        hypernetwork_path = get_full_path_or_raise("hypernetworks", hypernetwork_name)
         model_hypernetwork = model.clone()
         patch = load_hypernetwork_patch(hypernetwork_path, strength)
         if patch is not None:

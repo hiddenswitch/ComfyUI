@@ -16,6 +16,7 @@ import comfy.sd
 import comfy.utils
 from comfy import node_helpers
 from comfy.cmd import folder_paths
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 from comfy.execution_context import current_execution_context
 from comfy.utils import ProgressBar
 from comfy.weight_adapter import adapters, adapter_maps
@@ -572,7 +573,7 @@ def _load_existing_lora(existing_lora):
     if existing_lora == "[None]":
         return {}, 0
 
-    lora_path = folder_paths.get_full_path_or_raise("loras", existing_lora)
+    lora_path = get_full_path_or_raise("loras", existing_lora)
     # Extract steps from filename like "trained_lora_10_steps_20250225_203716"
     existing_steps = int(existing_lora.split("_steps_")[0].split("_")[-1])
     existing_weights = {}
@@ -880,7 +881,7 @@ class TrainLoraNode(io.ComfyNode):
                 ),
                 io.Combo.Input(
                     "existing_lora",
-                    options=folder_paths.get_filename_list("loras") + ["[None]"],
+                    options=get_filename_list_with_downloadable("loras") + ["[None]"],
                     default="[None]",
                     tooltip="The existing LoRA to append to. Set to None for new LoRA.",
                 ),

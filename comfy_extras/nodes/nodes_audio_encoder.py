@@ -1,8 +1,8 @@
-from comfy.cmd import folder_paths
 import comfy.audio_encoders.audio_encoders
 import comfy.utils
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 
 
 class AudioEncoderLoader(io.ComfyNode):
@@ -14,7 +14,7 @@ class AudioEncoderLoader(io.ComfyNode):
             inputs=[
                 io.Combo.Input(
                     "audio_encoder_name",
-                    options=folder_paths.get_filename_list("audio_encoders"),
+                    options=get_filename_list_with_downloadable("audio_encoders"),
                 ),
             ],
             outputs=[io.AudioEncoder.Output()],
@@ -22,7 +22,7 @@ class AudioEncoderLoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, audio_encoder_name) -> io.NodeOutput:
-        audio_encoder_name = folder_paths.get_full_path_or_raise("audio_encoders", audio_encoder_name)
+        audio_encoder_name = get_full_path_or_raise("audio_encoders", audio_encoder_name)
         sd = comfy.utils.load_torch_file(audio_encoder_name, safe_load=True)
         audio_encoder = comfy.audio_encoders.audio_encoders.load_audio_encoder_from_sd(sd)
         if audio_encoder is None:

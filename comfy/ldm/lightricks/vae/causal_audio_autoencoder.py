@@ -5,10 +5,8 @@ from torch.nn import functional as F
 from typing import Optional
 from enum import Enum
 from .pixel_norm import PixelNorm
-import comfy.ops
+from ....ops import disable_weight_init as ops
 import logging
-
-ops = comfy.ops.disable_weight_init
 
 
 class StringConvertibleEnum(Enum):
@@ -109,15 +107,15 @@ class CausalConv2d(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        dilation=1,
-        groups=1,
-        bias=True,
-        causality_axis: CausalityAxis = CausalityAxis.HEIGHT,
+            self,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=1,
+            dilation=1,
+            groups=1,
+            bias=True,
+            causality_axis: CausalityAxis = CausalityAxis.HEIGHT,
     ):
         super().__init__()
 
@@ -161,15 +159,15 @@ class CausalConv2d(nn.Module):
 
 
 def make_conv2d(
-    in_channels,
-    out_channels,
-    kernel_size,
-    stride=1,
-    padding=None,
-    dilation=1,
-    groups=1,
-    bias=True,
-    causality_axis: Optional[CausalityAxis] = None,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=None,
+        dilation=1,
+        groups=1,
+        bias=True,
+        causality_axis: Optional[CausalityAxis] = None,
 ):
     """
     Create a 2D convolution layer that can be either causal or non-causal.
@@ -297,15 +295,15 @@ class Downsample(nn.Module):
 
 class ResnetBlock(nn.Module):
     def __init__(
-        self,
-        *,
-        in_channels,
-        out_channels=None,
-        conv_shortcut=False,
-        dropout,
-        temb_channels=512,
-        norm_type="group",
-        causality_axis: CausalityAxis = CausalityAxis.HEIGHT,
+            self,
+            *,
+            in_channels,
+            out_channels=None,
+            conv_shortcut=False,
+            dropout,
+            temb_channels=512,
+            norm_type="group",
+            causality_axis: CausalityAxis = CausalityAxis.HEIGHT,
     ):
         super().__init__()
         self.causality_axis = causality_axis
@@ -418,24 +416,24 @@ def make_attn(in_channels, attn_type="vanilla", norm_type="group"):
 
 class Encoder(nn.Module):
     def __init__(
-        self,
-        *,
-        ch,
-        out_ch,
-        ch_mult=(1, 2, 4, 8),
-        num_res_blocks,
-        attn_resolutions,
-        dropout=0.0,
-        resamp_with_conv=True,
-        in_channels,
-        resolution,
-        z_channels,
-        double_z=True,
-        attn_type="vanilla",
-        mid_block_add_attention=True,
-        norm_type="group",
-        causality_axis=CausalityAxis.WIDTH.value,
-        **ignore_kwargs,
+            self,
+            *,
+            ch,
+            out_ch,
+            ch_mult=(1, 2, 4, 8),
+            num_res_blocks,
+            attn_resolutions,
+            dropout=0.0,
+            resamp_with_conv=True,
+            in_channels,
+            resolution,
+            z_channels,
+            double_z=True,
+            attn_type="vanilla",
+            mid_block_add_attention=True,
+            norm_type="group",
+            causality_axis=CausalityAxis.WIDTH.value,
+            **ignore_kwargs,
     ):
         super().__init__()
         self.ch = ch
@@ -587,25 +585,25 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(
-        self,
-        *,
-        ch,
-        out_ch,
-        ch_mult=(1, 2, 4, 8),
-        num_res_blocks,
-        attn_resolutions,
-        dropout=0.0,
-        resamp_with_conv=True,
-        in_channels,
-        resolution,
-        z_channels,
-        give_pre_end=False,
-        tanh_out=False,
-        attn_type="vanilla",
-        mid_block_add_attention=True,
-        norm_type="group",
-        causality_axis=CausalityAxis.WIDTH.value,
-        **ignorekwargs,
+            self,
+            *,
+            ch,
+            out_ch,
+            ch_mult=(1, 2, 4, 8),
+            num_res_blocks,
+            attn_resolutions,
+            dropout=0.0,
+            resamp_with_conv=True,
+            in_channels,
+            resolution,
+            z_channels,
+            give_pre_end=False,
+            tanh_out=False,
+            attn_type="vanilla",
+            mid_block_add_attention=True,
+            norm_type="group",
+            causality_axis=CausalityAxis.WIDTH.value,
+            **ignorekwargs,
     ):
         super().__init__()
         self.ch = ch

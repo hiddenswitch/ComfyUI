@@ -24,6 +24,7 @@ dependencies = [
     "comfy_kitchen>=0.2.5",
     "torch",
     "torchvision",
+    "torchaudio",
     "torchdiffeq>=0.2.3",
     "torchsde>=0.2.6",
     "einops>=0.6.0",

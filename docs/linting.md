@@ -36,18 +36,21 @@ class MyClipModel(sd1_clip.SDClipModel):
 
 **Rule:** `tests/absolute_import_checker.py`
 
-Within the `comfy` package, use relative imports instead of absolute imports for modules within the same package.
+Within the `comfy` or `comfy_extras` packages, use relative imports instead of absolute imports for modules within the same package. This applies to both `from X import Y` and `import X` style imports.
 
 **Bad:**
 ```python
 # In comfy/ldm/lightricks/av_model.py
 from comfy.ldm.lightricks.model import CrossAttention
+from comfy.ldm.common_dit import rms_norm
+import comfy.ldm.common_dit
 ```
 
 **Good:**
 ```python
 # In comfy/ldm/lightricks/av_model.py
 from .model import CrossAttention
+from ..common_dit import rms_norm
 ```
 
 **Relative Import Reference:**

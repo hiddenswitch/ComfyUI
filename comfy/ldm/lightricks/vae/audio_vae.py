@@ -3,9 +3,9 @@ from dataclasses import dataclass
 import math
 import torch
 
-import comfy.model_management
-import comfy.model_patcher
-import comfy.utils as utils
+from ....model_management import vae_offload_device, free_memory, load_model_gpu, get_torch_device
+from ....model_patcher import ModelPatcher
+from ....utils import state_dict_prefix_replace
 from ...mmaudio.vae.distributions import DiagonalGaussianDistribution
 from ..symmetric_patchifier import AudioPatchifier
 from .causal_audio_autoencoder import (
@@ -47,16 +47,16 @@ class ModelDeviceManager:
     """Manages device placement and GPU residency for the composed model."""
 
     def __init__(self, module: torch.nn.Module):
-        load_device = comfy.model_management.get_torch_device()
-        offload_device = comfy.model_management.vae_offload_device()
-        self.patcher = comfy.model_patcher.ModelPatcher(module, load_device, offload_device)
+        load_device = get_torch_device()
+        offload_device = vae_offload_device()
+        self.patcher = ModelPatcher(module, load_device, offload_device)
 
     def ensure_model_loaded(self) -> None:
-        comfy.model_management.free_memory(
+        free_memory(
             self.patcher.model_size(),
             self.patcher.load_device,
         )
-        comfy.model_management.load_model_gpu(self.patcher)
+        load_model_gpu(self.patcher)
 
     def move_to_load_device(self, tensor: torch.Tensor) -> torch.Tensor:
         return tensor.to(self.patcher.load_device)
@@ -148,8 +148,8 @@ class AudioVAE(torch.nn.Module):
 
         component_config = AudioVAEComponentConfig.from_metadata(metadata)
 
-        vae_sd = utils.state_dict_prefix_replace(state_dict, {"audio_vae.": ""}, filter_keys=True)
-        vocoder_sd = utils.state_dict_prefix_replace(state_dict, {"vocoder.": ""}, filter_keys=True)
+        vae_sd = state_dict_prefix_replace(state_dict, {"audio_vae.": ""}, filter_keys=True)
+        vocoder_sd = state_dict_prefix_replace(state_dict, {"vocoder.": ""}, filter_keys=True)
 
         self.autoencoder = CausalAudioAutoencoder(config=component_config.autoencoder)
         self.vocoder = Vocoder(config=component_config.vocoder)

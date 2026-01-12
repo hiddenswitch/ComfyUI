@@ -9,7 +9,7 @@ from .model import (
     LTXVModel,
 )
 from .symmetric_patchifier import AudioPatchifier
-import comfy.ldm.common_dit
+from ..common_dit import rms_norm
 
 class BasicAVTransformerBlock(nn.Module):
     def __init__(
@@ -182,10 +182,10 @@ class BasicAVTransformerBlock(nn.Module):
                 self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(0, 3))
             )
 
-            norm_vx = comfy.ldm.common_dit.rms_norm(vx) * (1 + vscale_msa) + vshift_msa
+            norm_vx = rms_norm(vx) * (1 + vscale_msa) + vshift_msa
             vx += self.attn1(norm_vx, pe=v_pe, transformer_options=transformer_options) * vgate_msa
             vx += self.attn2(
-                comfy.ldm.common_dit.rms_norm(vx),
+                rms_norm(vx),
                 context=v_context,
                 mask=attention_mask,
                 transformer_options=transformer_options,
@@ -198,13 +198,13 @@ class BasicAVTransformerBlock(nn.Module):
                 self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(0, 3))
             )
 
-            norm_ax = comfy.ldm.common_dit.rms_norm(ax) * (1 + ascale_msa) + ashift_msa
+            norm_ax = rms_norm(ax) * (1 + ascale_msa) + ashift_msa
             ax += (
                 self.audio_attn1(norm_ax, pe=a_pe, transformer_options=transformer_options)
                 * agate_msa
             )
             ax += self.audio_attn2(
-                comfy.ldm.common_dit.rms_norm(ax),
+                rms_norm(ax),
                 context=a_context,
                 mask=attention_mask,
                 transformer_options=transformer_options,
@@ -215,8 +215,8 @@ class BasicAVTransformerBlock(nn.Module):
         # Audio - Video cross attention.
         if run_a2v or run_v2a:
             # norm3
-            vx_norm3 = comfy.ldm.common_dit.rms_norm(vx)
-            ax_norm3 = comfy.ldm.common_dit.rms_norm(ax)
+            vx_norm3 = rms_norm(vx)
+            ax_norm3 = rms_norm(ax)
 
             (
                 scale_ca_audio_hidden_states_a2v,
@@ -301,7 +301,7 @@ class BasicAVTransformerBlock(nn.Module):
                 self.get_ada_values(self.scale_shift_table, vx.shape[0], v_timestep, slice(3, None))
             )
 
-            vx_scaled = comfy.ldm.common_dit.rms_norm(vx) * (1 + vscale_mlp) + vshift_mlp
+            vx_scaled = rms_norm(vx) * (1 + vscale_mlp) + vshift_mlp
             vx += self.ff(vx_scaled) * vgate_mlp
             del vshift_mlp, vscale_mlp, vgate_mlp
 
@@ -310,7 +310,7 @@ class BasicAVTransformerBlock(nn.Module):
                 self.get_ada_values(self.audio_scale_shift_table, ax.shape[0], a_timestep, slice(3, None))
             )
 
-            ax_scaled = comfy.ldm.common_dit.rms_norm(ax) * (1 + ascale_mlp) + ashift_mlp
+            ax_scaled = rms_norm(ax) * (1 + ascale_mlp) + ashift_mlp
             ax += self.audio_ff(ax_scaled) * agate_mlp
 
             del ashift_mlp, ascale_mlp, agate_mlp

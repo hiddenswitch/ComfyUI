@@ -1,5 +1,5 @@
 import torch
-from comfy.cmd import folder_paths  # pylint: disable=no-name-in-module
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 from torch import nn
 import comfy.utils
 import comfy.ops
@@ -225,7 +225,7 @@ def z_image_convert(sd):
 class ModelPatchLoader:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": {"name": (folder_paths.get_filename_list("model_patches"),),
+        return {"required": {"name": (get_filename_list_with_downloadable("model_patches"),),
                              }}
 
     RETURN_TYPES = ("MODEL_PATCH",)
@@ -235,7 +235,7 @@ class ModelPatchLoader:
     CATEGORY = "advanced/loaders"
 
     def load_model_patch(self, name):
-        model_patch_path = folder_paths.get_full_path_or_raise("model_patches", name)
+        model_patch_path = get_full_path_or_raise("model_patches", name)
         sd = comfy.utils.load_torch_file(model_patch_path, safe_load=True)
         dtype = comfy.utils.weight_dtype(sd)
 

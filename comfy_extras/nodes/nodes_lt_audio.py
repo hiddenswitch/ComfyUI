@@ -1,23 +1,26 @@
 from comfy.cmd import folder_paths
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 import comfy.utils
+import comfy.sd
 import comfy.model_management
 import torch
 
 from comfy.ldm.lightricks.vae.audio_vae import AudioVAE
 from comfy_api.latest import ComfyExtension, io
+from .nodes_audio_vae import AudioVAEModelManageable
 
 
-class LTXVAudioVAELoader(io.ComfyNode):
+class LTXVAudioVAELoader1(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="LTXVAudioVAELoader",
-            display_name="LTXV Audio VAE Loader",
+            node_id="LTXVAudioVAELoader1",
+            display_name="LTXV Audio VAE Loader (Legacy)",
             category="audio",
             inputs=[
                 io.Combo.Input(
                     "ckpt_name",
-                    options=folder_paths.get_filename_list("checkpoints"),
+                    options=get_filename_list_with_downloadable("checkpoints"),
                     tooltip="Audio VAE checkpoint to load.",
                 )
             ],
@@ -26,7 +29,7 @@ class LTXVAudioVAELoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, ckpt_name: str) -> io.NodeOutput:
-        ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        ckpt_path = get_full_path_or_raise("checkpoints", ckpt_name)
         sd, metadata = comfy.utils.load_torch_file(ckpt_path, return_metadata=True)
         return io.NodeOutput(AudioVAE(sd, metadata))
 
@@ -50,7 +53,7 @@ class LTXVAudioVAEEncode(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, audio, audio_vae: AudioVAE) -> io.NodeOutput:
+    def execute(cls, audio, audio_vae: AudioVAE | AudioVAEModelManageable) -> io.NodeOutput:
         audio_latents = audio_vae.encode(audio)
         return io.NodeOutput(
             {
@@ -80,7 +83,7 @@ class LTXVAudioVAEDecode(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, samples, audio_vae: AudioVAE) -> io.NodeOutput:
+    def execute(cls, samples, audio_vae: AudioVAE | AudioVAEModelManageable) -> io.NodeOutput:
         audio_latent = samples["samples"]
         if audio_latent.is_nested:
             audio_latent = audio_latent.unbind()[-1]
@@ -143,7 +146,7 @@ class LTXVEmptyLatentAudio(io.ComfyNode):
         frames_number: int,
         frame_rate: int,
         batch_size: int,
-        audio_vae: AudioVAE,
+        audio_vae: AudioVAE | AudioVAEModelManageable,
     ) -> io.NodeOutput:
         """Generate empty audio latents matching the reference pipeline structure."""
 
@@ -180,11 +183,11 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
             inputs=[
                 io.Combo.Input(
                     "text_encoder",
-                    options=folder_paths.get_filename_list("text_encoders"),
+                    options=get_filename_list_with_downloadable("text_encoders"),
                 ),
                 io.Combo.Input(
                     "ckpt_name",
-                    options=folder_paths.get_filename_list("checkpoints"),
+                    options=get_filename_list_with_downloadable("checkpoints"),
                 ),
                 io.Combo.Input(
                     "device",
@@ -198,8 +201,8 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
     def execute(cls, text_encoder, ckpt_name, device="default"):
         clip_type = comfy.sd.CLIPType.LTXV
 
-        clip_path1 = folder_paths.get_full_path_or_raise("text_encoders", text_encoder)
-        clip_path2 = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        clip_path1 = get_full_path_or_raise("text_encoders", text_encoder)
+        clip_path2 = get_full_path_or_raise("checkpoints", ckpt_name)
 
         model_options = {}
         if device == "cpu":
@@ -212,7 +215,7 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
 class LTXVAudioExtension(ComfyExtension):
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
-            LTXVAudioVAELoader,
+            LTXVAudioVAELoader1,
             LTXVAudioVAEEncode,
             LTXVAudioVAEDecode,
             LTXVEmptyLatentAudio,

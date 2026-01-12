@@ -1,7 +1,7 @@
 import math
 from typing import Optional
 
-import comfy.ldm.common_dit
+from ..common_dit import rms_norm
 import torch
 from .model import (
     CrossAttention,
@@ -83,7 +83,7 @@ class BasicTransformerBlock1D(nn.Module):
         # Notice that normalization is always applied before the real computation in the following blocks.
 
         # 1. Normalization Before Self-Attention
-        norm_hidden_states = comfy.ldm.common_dit.rms_norm(hidden_states)
+        norm_hidden_states = rms_norm(hidden_states)
 
         norm_hidden_states = norm_hidden_states.squeeze(1)
 
@@ -95,7 +95,7 @@ class BasicTransformerBlock1D(nn.Module):
             hidden_states = hidden_states.squeeze(1)
 
         # 3. Normalization before Feed-Forward
-        norm_hidden_states = comfy.ldm.common_dit.rms_norm(hidden_states)
+        norm_hidden_states = rms_norm(hidden_states)
 
         # 4. Feed-forward
         ff_output = self.ff(norm_hidden_states)
@@ -300,6 +300,6 @@ class Embeddings1DConnector(nn.Module):
         # if self.output_scale is not None:
         #     hidden_states = hidden_states / self.output_scale
 
-        hidden_states = comfy.ldm.common_dit.rms_norm(hidden_states)
+        hidden_states = rms_norm(hidden_states)
 
         return hidden_states, attention_mask
