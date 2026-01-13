@@ -769,8 +769,11 @@ class ModelPatcher(ModelManageable, PatchSupport):
                 params.append(name)
             for name, param in m.named_parameters(recurse=True):
                 if name not in params:
-                    skip = True  # skip random weights in non leaf modules
-                    break
+                    # Parameters under 'parametrizations.*' are from torch.nn.utils.parametrizations
+                    # (e.g., weight_norm) and should not trigger skip - they're still leaf modules
+                    if not name.startswith("parametrizations."):
+                        skip = True  # skip random weights in non leaf modules
+                        break
             if not skip and (hasattr(m, "comfy_cast_weights") or len(params) > 0):
                 module_mem = model_management.module_size(m)
                 module_offload_mem = module_mem
