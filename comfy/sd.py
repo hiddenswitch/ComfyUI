@@ -1429,7 +1429,7 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
     if model_options is None:
         model_options = {}
     sd, metadata = utils.load_torch_file(ckpt_path, return_metadata=True)
-    out = load_state_dict_guess_config(sd, output_vae, output_clip, output_clipvision, embedding_directory, output_model, model_options, te_model_options=te_model_options, ckpt_path=ckpt_path)
+    out = load_state_dict_guess_config(sd, output_vae, output_clip, output_clipvision, embedding_directory, output_model, model_options, te_model_options=te_model_options, metadata=metadata, ckpt_path=ckpt_path)
     if out is None:
         raise RuntimeError("Could not detect model type of: {}\n{}".format(ckpt_path, model_detection_error_hint(ckpt_path, sd)))
     return out

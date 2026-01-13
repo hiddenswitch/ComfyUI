@@ -348,7 +348,7 @@ class Decoder(nn.Module):
                     norm_layer=norm_layer,
                     inject_noise=block_params.get("inject_noise", False),
                     timestep_conditioning=timestep_conditioning,
-                    # attention_head_dim=block_params["attention_head_dim"],
+                    attention_head_dim=block_params["attention_head_dim"],
                     spatial_padding_mode=spatial_padding_mode,
                 )
             elif block_name == "res_x_y":
@@ -976,7 +976,8 @@ class VideoVAE(nn.Module):
 
         self.per_channel_statistics = processor()
 
-    def guess_config(self, version):
+    @staticmethod
+    def guess_config(version):
         if version == 0:
             config = {
                 "_class_name": "CausalVideoAutoencoder",

@@ -128,17 +128,20 @@ def _generate_config_params():
         # {"disable_pinned_memory": True},
     ]
     fast_options = [
-        {"fast": set()},
+        # {"fast": set()},
         # {"fast": {PerformanceFeature.Fp16Accumulation}},
         # {"fast": {PerformanceFeature.Fp8MatrixMultiplication}},
-        # {"fast": {PerformanceFeature.CublasOps}},
+        {"fast": {PerformanceFeature.CublasOps}},
     ]
     vram_options = [
-        # {"novram": True},
+        {"novram": True},
         {"normalvram": True},
     ]
+    reserve_vram_options = [
+        {"reserve_vram": 0}
+    ]
 
-    for attn, asnc, pinned, fst, vram in itertools.product(attn_options, async_options, pinned_options, fast_options, vram_options):
+    for attn, asnc, pinned, fst, vram in itertools.product(attn_options, async_options, pinned_options, fast_options, vram_options, reserve_vram_options):
         config_update = {}
         config_update.update(attn)
         config_update.update(asnc)

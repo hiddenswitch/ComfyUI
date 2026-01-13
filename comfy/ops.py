@@ -586,6 +586,7 @@ class fp8_ops(manual_cast):
             # todo: this was also in our code and is probably unnecessary now
             # if input.dtype == torch.float32 and (self.weight.dtype == torch.float16 or self.weight.dtype == torch.bfloat16):
             #     input = input.to(self.weight.dtype)
+
             weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
             x = torch.nn.functional.linear(input, weight, bias)
             uncast_bias_weight(self, weight, bias, offload_stream)
