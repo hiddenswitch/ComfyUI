@@ -20,6 +20,7 @@ import logging
 from typing import Optional, Type, Union
 
 import torch
+import json
 from torch import Tensor
 
 from . import model_management, rmsnorm
@@ -31,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 _RUN_EVERY_OP_ENABLED = model_management.torch_version_numeric >= (2, 5)
 
-import json
 
 
 def run_every_op():
@@ -43,12 +43,12 @@ def run_every_op():
     throw_exception_if_processing_interrupted()
 
 
-scaled_dot_product_attention = None
 
 
 def _scaled_dot_product_attention(q, k, v, *args, **kwargs):
     return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
 
+scaled_dot_product_attention = _scaled_dot_product_attention
 
 try:
     if torch.cuda.is_available():
@@ -65,21 +65,17 @@ try:
             SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
 
 
-            def _scaled_dot_product_attention_sdpa(q, k, v, *args, **kwargs):
+            def _scaled_dot_product_attention_sdpa2(q, k, v, *args, **kwargs):
                 with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
                     return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
 
 
-            scaled_dot_product_attention = _scaled_dot_product_attention_sdpa
+            scaled_dot_product_attention = _scaled_dot_product_attention_sdpa2
         else:
             logger.warning("Torch version too old to set sdpa backend priority, even though you are using CUDA")
-            scaled_dot_product_attention = _scaled_dot_product_attention
-    else:
-        scaled_dot_product_attention = _scaled_dot_product_attention
 except Exception as exc_info:
     if torch.cuda.is_available():
         logger.debug("Could not set sdpa backend priority.", exc_info=exc_info)
-    scaled_dot_product_attention = _scaled_dot_product_attention
 
 NVIDIA_MEMORY_CONV_BUG_WORKAROUND = False
 try:
@@ -100,7 +96,7 @@ def cast_to_input(weight, input, non_blocking=False, copy=True):
 
 
 def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, offloadable=False):
-    # NOTE: offloadable=False is a a legacy and if you are a custom node author reading this please pass
+    # NOTE: offloadable=False is a legacy and if you are a custom node author reading this please pass
     # offloadable=True and call uncast_bias_weight() after your last usage of the weight/bias. This
     # will add async-offload support to your cast and improve performance.
     if input is not None:
@@ -514,6 +510,7 @@ def fp8_linear(self, input):
 
     return o
 
+
 class fp8_ops(manual_cast):
     class Linear(manual_cast.Linear):
         def reset_parameters(self):
@@ -530,8 +527,9 @@ class fp8_ops(manual_cast):
                 except Exception as e:
                     logger.info("Exception during fp8 op: {}".format(e))
 
-            if input.dtype == torch.float32 and (self.weight.dtype == torch.float16 or self.weight.dtype == torch.bfloat16):
-                input = input.to(self.weight.dtype)
+            # todo: this was also in our code and is probably unnecessary now
+            # if input.dtype == torch.float32 and (self.weight.dtype == torch.float16 or self.weight.dtype == torch.bfloat16):
+            #     input = input.to(self.weight.dtype)
             weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
             x = torch.nn.functional.linear(input, weight, bias)
             uncast_bias_weight(self, weight, bias, offload_stream)
@@ -581,6 +579,7 @@ from .quant_ops import (
 def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_precision_mm=False, disabled=[]):
     if quant_config is None:
         quant_config = {}
+
     class MixedPrecisionOps(manual_cast):
         _quant_config = quant_config
         _compute_dtype = compute_dtype
@@ -633,7 +632,8 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                 weight_key = f"{prefix}weight"
                 weight = state_dict.pop(weight_key, None)
                 if weight is None:
-                    raise ValueError(f"Missing weight for layer {layer_name}")
+                    logging.warning(f"Missing weight for layer {layer_name}")
+                    return
 
                 manually_loaded_keys = [weight_key]
 
@@ -711,29 +711,39 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                         missing_keys.remove(key)
 
             def state_dict(self, *args, destination=None, prefix="", **kwargs):
-                sd: dict = super().state_dict(*args, destination=destination, prefix=prefix, **kwargs)
-                if isinstance(self.weight, QuantizedTensor):
-                    layout_cls = self.weight._layout_cls
+                if destination is not None:
+                    sd: dict = destination
+                else:
+                    sd = {}
 
-                    # Check if it's any FP8 variant (E4M3 or E5M2)
-                    if layout_cls in ("TensorCoreFP8E4M3Layout", "TensorCoreFP8E5M2Layout", "TensorCoreFP8Layout"):
-                        sd["{}weight_scale".format(prefix)] = self.weight._params.scale  # pylint: disable=unsupported-assignment-operation
-                    elif layout_cls == "TensorCoreNVFP4Layout":
-                        sd["{}weight_scale_2".format(prefix)] = self.weight._params.scale  # pylint: disable=unsupported-assignment-operation
-                        sd["{}weight_scale".format(prefix)] = self.weight._params.block_scale  # pylint: disable=unsupported-assignment-operation
+                if self.bias is not None:
+                    sd["{}bias".format(prefix)] = self.bias  # pylint: disable=unsupported-assignment-operation
+
+                if isinstance(self.weight, QuantizedTensor):
+                    sd_out = self.weight.state_dict("{}weight".format(prefix))
+                    for k in sd_out:
+                        sd[k] = sd_out[k]
 
                     quant_conf = {"format": self.quant_format}
                     if self._full_precision_mm_config:
                         quant_conf["full_precision_matrix_mult"] = True
                     sd["{}comfy_quant".format(prefix)] = torch.tensor(list(json.dumps(quant_conf).encode('utf-8')), dtype=torch.uint8)  # pylint: disable=unsupported-assignment-operation
+
+                    input_scale = getattr(self, 'input_scale', None)
+                    if input_scale is not None:
+                        sd["{}input_scale".format(prefix)] = input_scale  # pylint: disable=unsupported-assignment-operation
+                else:
+                    sd["{}weight".format(prefix)] = self.weight  # pylint: disable=unsupported-assignment-operation
                 return sd
 
             def _forward(self, input, weight, bias):
                 return torch.nn.functional.linear(input, weight, bias)
 
             def forward_comfy_cast_weights(self, input):
-                if input.dtype == torch.float32 and (self.weight.dtype == torch.float16 or self.weight.dtype == torch.bfloat16):
-                    input = input.to(self.weight.dtype)
+                # todo: not sure why this looks the way it does in our fork
+                # if input.dtype == torch.float32 and (self.weight.dtype == torch.float16 or self.weight.dtype == torch.bfloat16):
+                #     input = input.to(self.weight.dtype)
+                # comfyui original:
                 weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
                 x = self._forward(input, weight, bias)
                 uncast_bias_weight(self, weight, bias, offload_stream)
@@ -747,8 +757,8 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
 
                 if (getattr(self, 'layout_type', None) is not None and
                         not isinstance(input, QuantizedTensor) and not self._full_precision_mm and
-                    not getattr(self, 'comfy_force_cast_weights', False) and
-                    len(self.weight_function) == 0 and len(self.bias_function) == 0):
+                        not getattr(self, 'comfy_force_cast_weights', False) and
+                        len(self.weight_function) == 0 and len(self.bias_function) == 0):
 
                     # Reshape 3D tensors to 2D for quantization (needed for NVFP4 and others)
                     input_reshaped = input.reshape(-1, input_shape[2]) if input.ndim == 3 else input
@@ -779,7 +789,7 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
             def set_weight(self, weight, inplace_update=False, seed=None, return_weight=False, **kwargs):
                 if getattr(self, 'layout_type', None) is not None:
                     # dtype is now implicit in the layout class
-                    weight = QuantizedTensor.from_float(weight, self.layout_type, scale="recalculate", stochastic_rounding=seed, inplace_ops=True)
+                    weight = QuantizedTensor.from_float(weight, self.layout_type, scale="recalculate", stochastic_rounding=seed, inplace_ops=True).to(self.weight.dtype)
                 else:
                     weight = weight.to(self.weight.dtype)
                 if return_weight:
@@ -835,7 +845,7 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
             weight_dtype == torch.float16 and
             (compute_dtype == torch.float16 or compute_dtype is None)
     ):
-        logger.info("Using cublas ops")
+        logger.debug("Using cublas ops")
         return cublas_ops
 
     if compute_dtype is None or weight_dtype == compute_dtype:

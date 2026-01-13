@@ -1,7 +1,7 @@
 import torch
 import logging
 
-from .float import stochastic_rounding as stochastic_rounding_fn
+from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ try:
         QuantizedTensor,
         QuantizedLayout,
         TensorCoreFP8Layout as _CKFp8Layout,
-        TensorCoreNVFP4Layout,  # Direct import, no wrapper needed
+        TensorCoreNVFP4Layout as _CKNvfp4Layout,
         register_layout_op,
         register_layout_class,
         get_layout_class,
@@ -41,12 +41,15 @@ except ImportError as e:
     class QuantizedTensor:
         pass
 
+    class QuantizedLayout:
+        pass
+
 
     class _CKFp8Layout:
         pass
 
 
-    class TensorCoreNVFP4Layout:
+    class _CKNvfp4Layout:
         pass
 
 
@@ -56,6 +59,9 @@ except ImportError as e:
 
     def get_layout_class(name):
         return None
+
+    def register_layout_op(*args, **kwargs):
+        pass
 
 
 # ==============================================================================
@@ -94,6 +100,39 @@ class _TensorCoreFP8LayoutBase(_CKFp8Layout):
             qdata = ck.quantize_per_tensor_fp8(tensor, scale, cls.FP8_DTYPE)
 
         params = cls.Params(scale=scale.float(), orig_dtype=orig_dtype, orig_shape=orig_shape)
+        return qdata, params
+
+
+class TensorCoreNVFP4Layout(_CKNvfp4Layout):
+    @classmethod
+    def quantize(cls, tensor, scale=None, stochastic_rounding=0, inplace_ops=False):
+        if tensor.dim() != 2:
+            raise ValueError(f"NVFP4 requires 2D tensor, got {tensor.dim()}D")
+
+        orig_dtype = tensor.dtype
+        orig_shape = tuple(tensor.shape)
+
+        if scale is None or (isinstance(scale, str) and scale == "recalculate"):
+            scale = torch.amax(tensor.abs()) / (ck.float_utils.F8_E4M3_MAX * ck.float_utils.F4_E2M1_MAX)
+
+        if not isinstance(scale, torch.Tensor):
+            scale = torch.tensor(scale)
+        scale = scale.to(device=tensor.device, dtype=torch.float32)
+
+        padded_shape = cls.get_padded_shape(orig_shape)
+        needs_padding = padded_shape != orig_shape
+
+        if stochastic_rounding > 0:
+            qdata, block_scale = stochastic_round_quantize_nvfp4(tensor, scale, pad_16x=needs_padding, seed=stochastic_rounding)
+        else:
+            qdata, block_scale = ck.quantize_nvfp4(tensor, scale, pad_16x=needs_padding)
+
+        params = cls.Params(
+            scale=scale,
+            orig_dtype=orig_dtype,
+            orig_shape=orig_shape,
+            block_scale=block_scale,
+        )
         return qdata, params
 
 
