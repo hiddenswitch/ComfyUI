@@ -58,12 +58,12 @@ class AudioVAEModelManageable(ModelManageableStub):
         return self.model
 
     # Delegate AudioVAE methods
+    # Note: AudioVAE has its own internal ModelDeviceManager that calls load_model_gpu
+    # via ensure_model_loaded(). We don't call load_models_gpu here to avoid conflicts.
     def encode(self, audio: dict) -> torch.Tensor:
-        comfy.model_management.load_models_gpu([self])
         return self.model.encode(audio)
 
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
-        comfy.model_management.load_models_gpu([self])
         return self.model.decode(latents)
 
     def num_of_latents_from_frames(self, frames_number: int, frame_rate: int) -> int:

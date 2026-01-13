@@ -175,6 +175,7 @@ class LTXVEmptyLatentAudio(io.ComfyNode):
 class LTXAVTextEncoderLoader(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
+        text_encoders = get_filename_list_with_downloadable("text_encoders")
         return io.Schema(
             node_id="LTXAVTextEncoderLoader",
             display_name="LTXV Audio Text Encoder Loader",
@@ -183,7 +184,7 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
             inputs=[
                 io.Combo.Input(
                     "text_encoder",
-                    options=get_filename_list_with_downloadable("text_encoders"),
+                    options=text_encoders,
                 ),
                 io.Combo.Input(
                     "ckpt_name",

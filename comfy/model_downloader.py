@@ -710,6 +710,7 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b.safetensors"),
     HuggingFile("Comfy-Org/Ovis-Image", "split_files/text_encoders/ovis_2.5.safetensors"),
     HuggingFile("Comfy-Org/ltx-2", "split_files/text_encoders/gemma_3_12B_it.safetensors"),
+    HuggingFile("Comfy-Org/ltx-2", "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"),
 ], folder_names=["clip", "text_encoders"])
 
 KNOWN_STYLE_MODELS: Final[KnownDownloadables] = KnownDownloadables([

@@ -24,9 +24,13 @@ try:
         cuda_version = tuple(map(int, str(torch.version.cuda).split('.')))
         if cuda_version < (13,):
             ck.registry.disable("cuda")
-            logger.debug("WARNING: You need pytorch with cu130 or higher to use optimized CUDA operations.")
+            logger.debug(f"You need pytorch with cu130 or higher to use optimized CUDA operations, found {torch.version.cuda}")
 
-    ck.registry.disable("triton")
+    try:
+        import triton
+    except:
+        logger.debug("Disabling triton support, it was not installed")
+        ck.registry.disable("triton")
     for k, v in ck.list_backends().items():
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
 except ImportError as e:

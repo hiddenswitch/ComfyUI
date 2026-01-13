@@ -103,6 +103,8 @@ class DownloadableFileList(ComboOptions, list[str]):
 
     def __init__(self, existing_files: Iterable[str], downloadable_files: Iterable[Downloadable]=tuple()):
         super().__init__()
+        # Convert to list to allow multiple iterations (needed when asdict() copies via generator)
+        existing_files = list(existing_files)
         self._validation_view = set(existing_files)
 
         ui_view = set(existing_files)

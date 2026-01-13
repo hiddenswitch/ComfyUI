@@ -16,7 +16,7 @@
   },
   "92:9": {
     "inputs": {
-      "steps": 1,
+      "steps": 20,
       "max_shift": 2.05,
       "base_shift": 0.95,
       "stretch": true,
@@ -398,7 +398,7 @@
     "inputs": {
       "ckpt_name": "ltx-2-19b-dev-fp8.safetensors"
     },
-    "class_type": "LTXVAudioVAELoader",
+    "class_type": "LTXVAudioVAELoader1",
     "_meta": {
       "title": "LTXV Audio VAE Loader"
     }
