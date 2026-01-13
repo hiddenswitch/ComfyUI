@@ -111,7 +111,7 @@ def _generate_config_params():
         "use_pytorch_cross_attention",
         # "use_split_cross_attention",
         # "use_quad_cross_attention",
-        # "use_sage_attention",
+        "use_sage_attention",
         # "use_flash_attention"
     ]
     attn_options = [
@@ -138,16 +138,18 @@ def _generate_config_params():
         {"normalvram": True},
     ]
     reserve_vram_options = [
-        {"reserve_vram": 0}
+        {"reserve_vram": 0.0},
+        {"reserve_vram": 1.0}
     ]
 
-    for attn, asnc, pinned, fst, vram in itertools.product(attn_options, async_options, pinned_options, fast_options, vram_options, reserve_vram_options):
+    for attn, asnc, pinned, fst, vram, reserve_vram in itertools.product(attn_options, async_options, pinned_options, fast_options, vram_options, reserve_vram_options):
         config_update = {}
         config_update.update(attn)
         config_update.update(asnc)
         config_update.update(pinned)
         config_update.update(fst)
         config_update.update(vram)
+        config_update.update(reserve_vram)
         yield config_update
 
 
