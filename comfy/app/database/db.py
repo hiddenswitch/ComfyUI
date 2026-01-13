@@ -1,10 +1,9 @@
 import logging
 import os
 import shutil
-from importlib.resources import files
+from importlib import resources
 
 from ...cli_args import args
-from ...component_model.files import get_package_as_path
 
 Session = None
 
@@ -35,11 +34,12 @@ def can_create_session():
 
 
 def get_alembic_config():
-    config_path = str(files("comfy") / "alembic.ini")
-    scripts_path = get_package_as_path("comfy.alembic_db")
+    # Use importlib to read alembic.ini from the package
+    with resources.as_file(resources.files("comfy") / "alembic.ini") as config_path:
+        config = Config(str(config_path))
 
-    config = Config(config_path)
-    config.set_main_option("script_location", scripts_path)
+    # Use module path format for script_location (works with importlib)
+    config.set_main_option("script_location", "comfy:alembic_db")
     config.set_main_option("sqlalchemy.url", args.database_url)
 
     return config

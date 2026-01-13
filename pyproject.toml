@@ -123,6 +123,7 @@ dependencies = [
     # yanked propcache is omitted
     # we want this upgraded
     "propcache>=0.4.1",
+    "blake3",
 ]
 
 [build-system]

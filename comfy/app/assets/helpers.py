@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Any
 
-import folder_paths
+from ...cmd import folder_paths
 
 
 RootType = Literal["models", "input", "output"]
@@ -157,7 +157,9 @@ def get_relative_to_root_category_path_of_asset(file_path: str) -> tuple[Literal
             if not _is_within(fp_abs, base_abs):
                 continue
             cand = (len(base_abs), bucket, _rel(fp_abs, base_abs))
-            if best is None or cand[0] > best[0]:
+            if best is None:
+                best = cand
+            elif cand[0] > best[0]:
                 best = cand
 
     if best is not None:

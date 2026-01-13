@@ -4,7 +4,7 @@ import logging
 import os
 import sqlalchemy
 
-import folder_paths
+from ...cmd import folder_paths
 from ..database.db import create_session, dependencies_available
 from .helpers import (
     collect_models_files, compute_relative_filename, fast_asset_file_check, get_name_and_tags_from_asset_path,

@@ -1,4 +1,12 @@
 # pylint: disable=no-member
+import sys
+from pathlib import Path
+
+# Ensure src directory is in path for absolute imports
+src_dir = Path(__file__).parent.parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
@@ -8,7 +16,8 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
-from ..app.database.models import Base
+from comfy.app.database.models import Base
+from comfy.app.assets.database.models import Asset, AssetInfo, AssetCacheState, AssetInfoMeta, AssetInfoTag, Tag
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

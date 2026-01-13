@@ -50,6 +50,44 @@ def _scaled_dot_product_attention(q, k, v, *args, **kwargs):
 
 scaled_dot_product_attention = _scaled_dot_product_attention
 
+# Track if cuDNN attention should be disabled due to runtime errors
+_cudnn_attention_disabled = False
+
+def _check_cudnn_nvrtc_compatibility():
+    """Check if cuDNN attention is likely to work based on CUDA version compatibility.
+
+    cuDNN attention uses nvrtc (NVIDIA Runtime Compilation) which requires
+    the system nvrtc version to match the CUDA runtime version. A mismatch
+    will cause runtime errors like:
+    'major version mismatch between cudart and nvrtc'
+    """
+    try:
+        # Get PyTorch's CUDA version
+        pytorch_cuda = torch.version.cuda
+        if pytorch_cuda is None:
+            return False
+
+        pytorch_cuda_major = int(pytorch_cuda.split('.')[0])
+
+        # Try to detect system CUDA/nvrtc version mismatch
+        # This is a heuristic - if cuDNN version doesn't align with expectations
+        # for the PyTorch CUDA version, there may be issues
+        cudnn_version = torch.backends.cudnn.version()
+        if cudnn_version is None:
+            return False
+
+        # cuDNN 9.x requires CUDA 12.x or 13.x
+        # If there's a significant version gap, there may be compatibility issues
+        cudnn_major = cudnn_version // 10000
+
+        # cuDNN 9 works with CUDA 12+
+        if cudnn_major >= 9 and pytorch_cuda_major >= 12:
+            return True
+
+        return False
+    except Exception:
+        return False
+
 try:
     if torch.cuda.is_available():
         from torch.nn.attention import SDPBackend, sdpa_kernel  # pylint: disable=import-error
@@ -62,12 +100,30 @@ try:
                 SDPBackend.MATH,
             ]
 
-            SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
+            # Only add cuDNN attention if compatibility check passes
+            if _check_cudnn_nvrtc_compatibility():
+                SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
+            else:
+                logger.debug("Skipping cuDNN attention backend due to potential version incompatibility")
 
 
             def _scaled_dot_product_attention_sdpa2(q, k, v, *args, **kwargs):
-                with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
-                    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                global _cudnn_attention_disabled
+                try:
+                    with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
+                        return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                except RuntimeError as e:
+                    # Check for cuDNN-specific errors and fall back
+                    error_msg = str(e)
+                    if "cuDNN" in error_msg or "cudnn" in error_msg.lower() or "nvrtc" in error_msg.lower():
+                        if not _cudnn_attention_disabled:
+                            logger.warning(f"cuDNN attention failed, falling back to other backends: {error_msg}")
+                            _cudnn_attention_disabled = True
+                        # Try without cuDNN
+                        fallback_priority = [b for b in SDPA_BACKEND_PRIORITY if b != SDPBackend.CUDNN_ATTENTION]
+                        with sdpa_kernel(fallback_priority, set_priority=True):
+                            return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                    raise
 
 
             scaled_dot_product_attention = _scaled_dot_product_attention_sdpa2

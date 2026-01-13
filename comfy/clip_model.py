@@ -212,7 +212,7 @@ class CLIPTextModel(torch.nn.Module):
 
 def siglip2_pos_embed(embed_weight, embeds, orig_shape):
     embed_weight_len = round(embed_weight.shape[0] ** 0.5)
-    embed_weight = comfy.ops.cast_to_input(embed_weight, embeds).movedim(1, 0).reshape(1, -1, embed_weight_len, embed_weight_len)
+    embed_weight = ops.cast_to_input(embed_weight, embeds).movedim(1, 0).reshape(1, -1, embed_weight_len, embed_weight_len)
     embed_weight = torch.nn.functional.interpolate(embed_weight, size=orig_shape, mode="bilinear", align_corners=False, antialias=True)
     embed_weight = embed_weight.reshape(-1, embed_weight.shape[-2] * embed_weight.shape[-1]).movedim(0, 1)
     return embeds + embed_weight

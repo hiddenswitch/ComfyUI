@@ -91,3 +91,13 @@ Reference:
 - `.` = current package
 - `..` = parent package
 - `...` = grandparent package
+
+## Alembic Migrations
+
+Upstream keeps `alembic_db/versions/` at the repository root. We move it to `comfy/alembic_db/versions/`.
+
+After merging new migrations:
+```bash
+git mv alembic_db/versions/* comfy/alembic_db/versions/
+rmdir alembic_db/versions alembic_db
+```

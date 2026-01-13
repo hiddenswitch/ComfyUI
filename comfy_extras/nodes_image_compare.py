@@ -1,4 +1,4 @@
-import nodes
+from comfy.nodes import base_nodes as nodes
 
 from typing_extensions import override
 from comfy_api.latest import IO, ComfyExtension
