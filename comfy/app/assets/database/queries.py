@@ -2,8 +2,8 @@ import sqlalchemy as sa
 from collections import defaultdict
 from sqlalchemy import select, exists, func
 from sqlalchemy.orm import Session, contains_eager, noload
-from app.assets.database.models import Asset, AssetInfo, AssetInfoMeta, AssetInfoTag, Tag
-from app.assets.helpers import escape_like_prefix, normalize_tags
+from .models import Asset, AssetInfo, AssetInfoMeta, AssetInfoTag, Tag
+from ..helpers import escape_like_prefix, normalize_tags
 from typing import Sequence
 
 

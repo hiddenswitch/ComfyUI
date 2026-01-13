@@ -5,15 +5,15 @@ import os
 import sqlalchemy
 
 import folder_paths
-from app.database.db import create_session, dependencies_available
-from app.assets.helpers import (
+from ..database.db import create_session, dependencies_available
+from .helpers import (
     collect_models_files, compute_relative_filename, fast_asset_file_check, get_name_and_tags_from_asset_path,
-    list_tree,prefixes_for_root, escape_like_prefix,
+    list_tree, prefixes_for_root, escape_like_prefix,
     RootType
 )
-from app.assets.database.tags import add_missing_tag_for_asset_id, ensure_tags_exist, remove_missing_tag_for_asset_id
-from app.assets.database.bulk_ops import seed_from_paths_batch
-from app.assets.database.models import Asset, AssetCacheState, AssetInfo
+from .database.tags import add_missing_tag_for_asset_id, ensure_tags_exist, remove_missing_tag_for_asset_id
+from .database.bulk_ops import seed_from_paths_batch
+from .database.models import Asset, AssetCacheState, AssetInfo
 
 
 def seed_assets(roots: tuple[RootType, ...], enable_logging: bool = False) -> None:

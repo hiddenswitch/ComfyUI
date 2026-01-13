@@ -1,8 +1,8 @@
 from typing import Sequence
 
-from app.database.db import create_session
-from app.assets.api import schemas_out
-from app.assets.database.queries import (
+from ..database.db import create_session
+from .api import schemas_out
+from .database.queries import (
     asset_exists_by_hash,
     fetch_asset_info_asset_and_tags,
     list_asset_infos_page,

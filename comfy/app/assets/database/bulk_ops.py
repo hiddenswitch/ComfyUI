@@ -5,8 +5,8 @@ from typing import Iterable
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects import sqlite
 
-from app.assets.helpers import utcnow
-from app.assets.database.models import Asset, AssetCacheState, AssetInfo, AssetInfoTag, AssetInfoMeta
+from ..helpers import utcnow
+from .models import Asset, AssetCacheState, AssetInfo, AssetInfoTag, AssetInfoMeta
 
 MAX_BIND_PARAMS = 800
 

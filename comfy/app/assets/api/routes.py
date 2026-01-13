@@ -4,10 +4,10 @@ from aiohttp import web
 
 from pydantic import ValidationError
 
-import app.assets.manager as manager
-from app import user_manager
-from app.assets.api import schemas_in
-from app.assets.helpers import get_query_dict
+from .. import manager
+from ... import user_manager
+from . import schemas_in
+from ..helpers import get_query_dict
 
 ROUTES = web.RouteTableDef()
 USER_MANAGER: user_manager.UserManager | None = None

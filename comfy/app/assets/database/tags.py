@@ -4,8 +4,8 @@ import sqlalchemy
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects import sqlite
 
-from app.assets.helpers import normalize_tags, utcnow
-from app.assets.database.models import Tag, AssetInfoTag, AssetInfo
+from ..helpers import normalize_tags, utcnow
+from .models import Tag, AssetInfoTag, AssetInfo
 
 
 def ensure_tags_exist(session: Session, names: Iterable[str], tag_type: str = "user") -> None:
