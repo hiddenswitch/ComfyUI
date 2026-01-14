@@ -2,6 +2,8 @@ import logging
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 from comfy_api.latest import Input
 
 
@@ -103,7 +105,7 @@ def validate_video_dimensions(
     try:
         width, height = video.get_dimensions()
     except Exception as e:
-        logging.error("Error getting dimensions of video: %s", e)
+        logger.error("Error getting dimensions of video: %s", e)
         return
 
     if min_width is not None and width < min_width:
@@ -124,7 +126,7 @@ def validate_video_duration(
     try:
         duration = video.get_duration()
     except Exception as e:
-        logging.error("Error getting duration of video: %s", e)
+        logger.error("Error getting duration of video: %s", e)
         return
 
     epsilon = 0.0001
@@ -142,7 +144,7 @@ def validate_video_frame_count(
     try:
         frame_count = video.get_frame_count()
     except Exception as e:
-        logging.error("Error getting frame count of video: %s", e)
+        logger.error("Error getting frame count of video: %s", e)
         return
 
     if min_frame_count is not None and min_frame_count > frame_count:

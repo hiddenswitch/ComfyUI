@@ -11,6 +11,8 @@ from io import BytesIO
 from typing import Any, Literal, TypeVar
 from urllib.parse import urljoin, urlparse
 
+logger = logging.getLogger(__name__)
+
 import aiohttp
 from aiohttp.client_exceptions import ClientError, ContentTypeError
 from pydantic import BaseModel
@@ -288,7 +290,7 @@ async def poll_op_raw(
                 )
                 await asyncio.sleep(1.0)
         except Exception as exc:
-            logging.debug("Polling ticker exited: %s", exc)
+            logger.debug("Polling ticker exited: %s", exc)
 
     ticker_task = asyncio.create_task(_ticker())
     try:
@@ -329,7 +331,7 @@ async def poll_op_raw(
             try:
                 status = _normalize_status_value(status_extractor(resp_json))
             except Exception as e:
-                logging.error("Status extraction failed: %s", e)
+                logger.error("Status extraction failed: %s", e)
                 status = None
 
             if price_extractor:
@@ -380,7 +382,7 @@ async def poll_op_raw(
 
             if status in failed_states:
                 msg = f"Task failed: {json.dumps(resp_json)}"
-                logging.error(msg)
+                logger.error(msg)
                 raise Exception(msg)
 
             try:
@@ -596,7 +598,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
         sess: aiohttp.ClientSession | None = None
 
         operation_id = _generate_operation_id(method, cfg.endpoint.path, attempt)
-        logging.debug("[DEBUG] HTTP %s %s (attempt %d)", method, url, attempt)
+        logger.debug("[DEBUG] HTTP %s %s (attempt %d)", method, url, attempt)
 
         payload_headers = {"Accept": "*/*"} if expect_binary else {"Accept": "application/json"}
         if not parsed_url.scheme and not parsed_url.netloc:  # is URL relative?
@@ -663,7 +665,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                     request_data=request_body_log,
                 )
             except Exception as _log_e:
-                logging.debug("[DEBUG] request logging failed: %s", _log_e)
+                logger.debug("[DEBUG] request logging failed: %s", _log_e)
 
             req_coro = sess.request(method, url, params=params, **payload_kw)
             req_task = asyncio.create_task(req_coro)
@@ -689,7 +691,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                     except (ContentTypeError, json.JSONDecodeError):
                         body = await resp.text()
                     if resp.status in _RETRY_STATUS and attempt <= cfg.max_retries:
-                        logging.warning(
+                        logger.warning(
                             "HTTP %s %s -> %s. Retrying in %.2fs (retry %d of %d).",
                             method,
                             url,
@@ -709,7 +711,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                                 error_message=_friendly_http_message(resp.status, body),
                             )
                         except Exception as _log_e:
-                            logging.debug("[DEBUG] response logging failed: %s", _log_e)
+                            logger.debug("[DEBUG] response logging failed: %s", _log_e)
 
                         await sleep_with_interrupt(
                             delay,
@@ -733,7 +735,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                             error_message=msg,
                         )
                     except Exception as _log_e:
-                        logging.debug("[DEBUG] response logging failed: %s", _log_e)
+                        logger.debug("[DEBUG] response logging failed: %s", _log_e)
                     raise Exception(msg)
 
                 if expect_binary:
@@ -763,7 +765,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                             response_content=bytes_payload,
                         )
                     except Exception as _log_e:
-                        logging.debug("[DEBUG] response logging failed: %s", _log_e)
+                        logger.debug("[DEBUG] response logging failed: %s", _log_e)
                     return bytes_payload
                 else:
                     try:
@@ -790,15 +792,15 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                             response_content=response_content_to_log,
                         )
                     except Exception as _log_e:
-                        logging.debug("[DEBUG] response logging failed: %s", _log_e)
+                        logger.debug("[DEBUG] response logging failed: %s", _log_e)
                     return payload
 
         except ProcessingInterrupted:
-            logging.debug("Polling was interrupted by user")
+            logger.debug("Polling was interrupted by user")
             raise
         except (ClientError, OSError) as e:
             if attempt <= cfg.max_retries:
-                logging.warning(
+                logger.warning(
                     "Connection error calling %s %s. Retrying in %.2fs (%d/%d): %s",
                     method,
                     url,
@@ -818,7 +820,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                         error_message=f"{type(e).__name__}: {str(e)} (will retry)",
                     )
                 except Exception as _log_e:
-                    logging.debug("[DEBUG] request error logging failed: %s", _log_e)
+                    logger.debug("[DEBUG] request error logging failed: %s", _log_e)
                 await sleep_with_interrupt(
                     delay,
                     cfg.node_cls,
@@ -842,7 +844,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                         error_message=f"LocalNetworkError: {str(e)}",
                     )
                 except Exception as _log_e:
-                    logging.debug("[DEBUG] final error logging failed: %s", _log_e)
+                    logger.debug("[DEBUG] final error logging failed: %s", _log_e)
                 raise LocalNetworkError(
                     "Unable to connect to the API server due to local network issues. "
                     "Please check your internet connection and try again."
@@ -858,7 +860,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                     error_message=f"ApiServerError: {str(e)}",
                 )
             except Exception as _log_e:
-                logging.debug("[DEBUG] final error logging failed: %s", _log_e)
+                logger.debug("[DEBUG] final error logging failed: %s", _log_e)
             raise ApiServerError(
                 f"The API server at {default_base_url()} is currently unreachable. "
                 f"The service may be experiencing issues."
@@ -892,7 +894,7 @@ def _validate_or_raise(response_model: type[M], payload: Any) -> M:
     try:
         return response_model.model_validate(payload)
     except Exception as e:
-        logging.error(
+        logger.error(
             "Response validation failed for %s: %s",
             getattr(response_model, "__name__", response_model),
             e,
@@ -924,7 +926,7 @@ def _wrap_model_extractor(
                 _cache[key] = model
             return extractor(model)
         except Exception as e:
-            logging.error("Extractor failed (typed -> dict wrapper): %s", e)
+            logger.error("Extractor failed (typed -> dict wrapper): %s", e)
             raise
 
     return _wrapped

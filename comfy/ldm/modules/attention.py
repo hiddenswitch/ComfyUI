@@ -674,7 +674,7 @@ def attention3_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
         out = sageattn3_blackwell(q_s, k_s, v_s, is_causal=False)
     except Exception as e:
         exception_fallback = True
-        logging.error("Error running SageAttention3: %s, falling back to pytorch attention.", e)
+        logger.error("Error running SageAttention3: %s, falling back to pytorch attention.", e)
 
     if exception_fallback:
         if not skip_reshape:

@@ -8,6 +8,8 @@ import logging
 import math
 import re
 
+logger = logging.getLogger(__name__)
+
 import torch
 from typing_extensions import override
 
@@ -301,7 +303,7 @@ def validate_task_creation_response(response) -> None:
     """Validates that the Kling task creation request was successful."""
     if not is_valid_task_creation_response(response):
         error_msg = f"Kling initial request failed. Code: {response.code}, Message: {response.message}, Data: {response.data}"
-        logging.error(error_msg)
+        logger.error(error_msg)
         raise Exception(error_msg)
 
 
@@ -309,7 +311,7 @@ def validate_video_result_response(response) -> None:
     """Validates that the Kling task result contains a video."""
     if not is_valid_video_response(response):
         error_msg = f"Kling task {response.data.task_id} succeeded but no video data found in response."
-        logging.error("Error: %s.\nResponse: %s", error_msg, response)
+        logger.error("Error: %s.\nResponse: %s", error_msg, response)
         raise Exception(error_msg)
 
 
@@ -317,7 +319,7 @@ def validate_image_result_response(response) -> None:
     """Validates that the Kling task result contains an image."""
     if not is_valid_image_response(response):
         error_msg = f"Kling task {response.data.task_id} succeeded but no image data found in response."
-        logging.error("Error: %s.\nResponse: %s", error_msg, response)
+        logger.error("Error: %s.\nResponse: %s", error_msg, response)
         raise Exception(error_msg)
 
 
@@ -338,7 +340,7 @@ def get_video_from_response(response) -> KlingVideoResult:
     Will raise an error if the response is not valid.
     """
     video = response.data.task_result.videos[0]
-    logging.info(
+    logger.info(
         "Kling task %s succeeded. Video URL: %s", response.data.task_id, video.url
     )
     return video
@@ -359,7 +361,7 @@ def get_images_from_response(response) -> list[KlingImageResult]:
     Will raise an error if the response is not valid.
     """
     images = response.data.task_result.images
-    logging.info("Kling task %s succeeded. Images: %s", response.data.task_id, images)
+    logger.info("Kling task %s succeeded. Images: %s", response.data.task_id, images)
     return images
 
 
@@ -562,14 +564,14 @@ async def execute_lipsync(
 
     # Upload video to Comfy API and get download URL
     video_url = await upload_video_to_comfyapi(cls, video)
-    logging.info("Uploaded video to Comfy API. URL: %s", video_url)
+    logger.info("Uploaded video to Comfy API. URL: %s", video_url)
 
     # Upload the audio file to Comfy API and get download URL
     if audio:
         audio_url = await upload_audio_to_comfyapi(
             cls, audio, container_format="mp3", codec_name="libmp3lame", mime_type="audio/mpeg"
         )
-        logging.info("Uploaded audio to Comfy API. URL: %s", audio_url)
+        logger.info("Uploaded audio to Comfy API. URL: %s", audio_url)
     else:
         audio_url = None
 

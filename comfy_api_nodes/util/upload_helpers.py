@@ -6,6 +6,8 @@ import uuid
 from io import BytesIO
 from urllib.parse import urlparse
 
+logger = logging.getLogger(__name__)
+
 import aiohttp
 import torch
 from pydantic import BaseModel, Field
@@ -115,7 +117,7 @@ async def upload_video_to_comfyapi(
                     f"Video duration ({actual_duration:.2f}s) exceeds the maximum allowed ({max_duration}s)."
                 )
         except Exception as e:
-            logging.error("Error getting video duration: %s", str(e))
+            logger.error("Error getting video duration: %s", str(e))
             raise ValueError(f"Could not verify video duration from source: {e}") from e
 
     upload_mime_type = f"video/{container.value.lower()}"
@@ -230,7 +232,7 @@ async def upload_file(
                     request_data=f"[File data {len(data)} bytes]",
                 )
             except Exception as e:
-                logging.debug("[DEBUG] upload request logging failed: %s", e)
+                logger.debug("[DEBUG] upload request logging failed: %s", e)
 
             sess = aiohttp.ClientSession(timeout=timeout)
             req = sess.put(upload_url, data=data, headers=headers, skip_auto_headers=skip_auto_headers)
@@ -286,7 +288,7 @@ async def upload_file(
                         response_content="File uploaded successfully.",
                     )
                 except Exception as e:
-                    logging.debug("[DEBUG] upload response logging failed: %s", e)
+                    logger.debug("[DEBUG] upload response logging failed: %s", e)
                 return
         except asyncio.CancelledError:
             raise ProcessingInterrupted("Task cancelled") from None

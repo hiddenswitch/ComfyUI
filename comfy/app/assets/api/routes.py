@@ -2,6 +2,8 @@ import logging
 import uuid
 from aiohttp import web
 
+logger = logging.getLogger(__name__)
+
 from pydantic import ValidationError
 
 from .. import manager
@@ -67,7 +69,7 @@ async def get_asset(request: web.Request) -> web.Response:
     except ValueError as e:
         return _error_response(404, "ASSET_NOT_FOUND", str(e), {"id": asset_info_id})
     except Exception:
-        logging.exception(
+        logger.exception(
             "get_asset failed for asset_info_id=%s, owner_id=%s",
             asset_info_id,
             USER_MANAGER.get_request_user_id(request),

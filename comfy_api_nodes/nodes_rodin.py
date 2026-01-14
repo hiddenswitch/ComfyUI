@@ -11,6 +11,8 @@ from comfy.cmd import folder_paths as comfy_paths
 import os
 import logging
 import math
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 from io import BytesIO
 from typing_extensions import override
@@ -156,22 +158,22 @@ async def create_generate_task(
 
     if hasattr(response, "error"):
         error_message = f"Rodin3D Create 3D generate Task Failed. Message: {response.message}, error: {response.error}"
-        logging.error(error_message)
+        logger.error(error_message)
         raise Exception(error_message)
 
-    logging.info("[ Rodin3D API - Submit Jobs ] Submit Generate Task Success!")
+    logger.info("[ Rodin3D API - Submit Jobs ] Submit Generate Task Success!")
     subscription_key = response.jobs.subscription_key
     task_uuid = response.uuid
-    logging.info("[ Rodin3D API - Submit Jobs ] UUID: %s", task_uuid)
+    logger.info("[ Rodin3D API - Submit Jobs ] UUID: %s", task_uuid)
     return task_uuid, subscription_key
 
 
 def check_rodin_status(response: Rodin3DCheckStatusResponse) -> str:
     all_done = all(job.status == JobStatus.Done for job in response.jobs)
     status_list = [str(job.status) for job in response.jobs]
-    logging.info("[ Rodin3D API - CheckStatus ] Generate Status: %s", status_list)
+    logger.info("[ Rodin3D API - CheckStatus ] Generate Status: %s", status_list)
     if any(job.status == JobStatus.Failed for job in response.jobs):
-        logging.error("[ Rodin3D API - CheckStatus ] Generate Failed: %s, Please try again.", status_list)
+        logger.error("[ Rodin3D API - CheckStatus ] Generate Failed: %s, Please try again.", status_list)
         raise Exception("[ Rodin3D API ] Generate Failed, Please Try again.")
     if all_done:
         return "DONE"
@@ -187,7 +189,7 @@ def extract_progress(response: Rodin3DCheckStatusResponse) -> Optional[int]:
 
 async def poll_for_task_status(
         subscription_key: str, cls: type[IO.ComfyNode]) -> Rodin3DCheckStatusResponse:
-    logging.info("[ Rodin3D API - CheckStatus ] Generate Start!")
+    logger.info("[ Rodin3D API - CheckStatus ] Generate Start!")
     return await poll_op(
         cls,
         ApiEndpoint(path="/proxy/rodin/api/v2/status", method="POST"),
@@ -199,7 +201,7 @@ async def poll_for_task_status(
 
 
 async def get_rodin_download_list(uuid: str, cls: type[IO.ComfyNode]) -> Rodin3DDownloadResponse:
-    logging.info("[ Rodin3D API - Downloading ] Generate Successfully!")
+    logger.info("[ Rodin3D API - Downloading ] Generate Successfully!")
     return await sync_op(
         cls,
         ApiEndpoint(path="/proxy/rodin/api/v2/download", method="POST"),

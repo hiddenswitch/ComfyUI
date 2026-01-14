@@ -449,10 +449,10 @@ class JoinAudioChannels(IO.ComfyNode):
         if length_left != length_right:
             min_length = min(length_left, length_right)
             if length_left > min_length:
-                logging.info(f"JoinAudioChannels: Trimming left channel from {length_left} to {min_length} samples.")
+                logger.info(f"JoinAudioChannels: Trimming left channel from {length_left} to {min_length} samples.")
                 waveform_left = waveform_left[..., :min_length]
             if length_right > min_length:
-                logging.info(f"JoinAudioChannels: Trimming right channel from {length_right} to {min_length} samples.")
+                logger.info(f"JoinAudioChannels: Trimming right channel from {length_right} to {min_length} samples.")
                 waveform_right = waveform_right[..., :min_length]
 
         # Join the channels into stereo

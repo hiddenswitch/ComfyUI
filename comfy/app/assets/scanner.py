@@ -4,6 +4,8 @@ import logging
 import os
 import sqlalchemy
 
+logger = logging.getLogger(__name__)
+
 from ...cmd import folder_paths
 from ..database.db import create_session, dependencies_available
 from .helpers import (
@@ -22,7 +24,7 @@ def seed_assets(roots: tuple[RootType, ...], enable_logging: bool = False) -> No
     """
     if not dependencies_available():
         if enable_logging:
-            logging.warning("Database dependencies not available, skipping assets scan")
+            logger.warning("Database dependencies not available, skipping assets scan")
         return
     t_start = time.perf_counter()
     created = 0
@@ -36,7 +38,7 @@ def seed_assets(roots: tuple[RootType, ...], enable_logging: bool = False) -> No
                 if survivors:
                     existing_paths.update(survivors)
             except Exception as e:
-                logging.exception("fast DB scan failed for %s: %s", r, e)
+                logger.exception("fast DB scan failed for %s: %s", r, e)
 
         if "models" in roots:
             paths.extend(collect_models_files())
@@ -84,7 +86,7 @@ def seed_assets(roots: tuple[RootType, ...], enable_logging: bool = False) -> No
             sess.commit()
     finally:
         if enable_logging:
-            logging.info(
+            logger.info(
                 "Assets scan(roots=%s) completed in %.3fs (created=%d, skipped_existing=%d, total_seen=%d)",
                 roots,
                 time.perf_counter() - t_start,

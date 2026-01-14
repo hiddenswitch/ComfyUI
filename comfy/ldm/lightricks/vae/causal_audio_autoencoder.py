@@ -8,6 +8,8 @@ from .pixel_norm import PixelNorm
 from ....ops import disable_weight_init as ops
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 class StringConvertibleEnum(Enum):
     """
@@ -399,9 +401,9 @@ def make_attn(in_channels, attn_type="vanilla", norm_type="group"):
     attn_type = AttentionType.str_to_enum(attn_type)
 
     if attn_type != AttentionType.NONE:
-        logging.info(f"making attention of type '{attn_type.value}' with {in_channels} in_channels")
+        logger.info(f"making attention of type '{attn_type.value}' with {in_channels} in_channels")
     else:
-        logging.info(f"making identity attention with {in_channels} in_channels")
+        logger.info(f"making identity attention with {in_channels} in_channels")
 
     match attn_type:
         case AttentionType.VANILLA:

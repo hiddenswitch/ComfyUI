@@ -10,6 +10,8 @@ import threading
 from enum import Enum
 from typing import Optional, get_origin, get_args, get_type_hints
 
+logger = logging.getLogger(__name__)
+
 
 class TypeTracker:
     """Tracks types discovered during stub generation for automatic import generation."""
@@ -286,7 +288,7 @@ class AsyncToSyncConverter:
                                 # Also set on the async instance for consistency
                                 setattr(self._async_instance, attr_name, async_instance)
                             except Exception as e:
-                                logging.warning(
+                                logger.warning(
                                     f"Failed to create instance for {attr_name}: {e}"
                                 )
 
@@ -967,7 +969,7 @@ class AsyncToSyncConverter:
                     seen.add(imp)
                     unique_imports.append(imp)
                 else:
-                    logging.warning(f"Duplicate import detected: {imp}")
+                    logger.warning(f"Duplicate import detected: {imp}")
 
             # Replace the placeholder with actual imports
             stub_content[imports_placeholder_index : imports_placeholder_index + 1] = (
@@ -981,16 +983,16 @@ class AsyncToSyncConverter:
             with open(sync_stub_path, "w") as f:
                 f.write("\n".join(stub_content))
 
-            logging.info(f"Generated stub file: {sync_stub_path}")
+            logger.info(f"Generated stub file: {sync_stub_path}")
 
         except Exception as e:
             # If stub generation fails, log the error but don't break the main functionality
-            logging.error(
+            logger.error(
                 f"Error generating stub file for {sync_class.__name__}: {str(e)}"
             )
             import traceback
 
-            logging.error(traceback.format_exc())
+            logger.error(traceback.format_exc())
 
 
 def create_sync_class(async_class: type, thread_pool_size=10) -> type:

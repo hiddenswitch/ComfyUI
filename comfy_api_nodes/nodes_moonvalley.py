@@ -1,5 +1,7 @@
 import logging
 
+logger = logging.getLogger(__name__)
+
 from typing_extensions import override
 
 from comfy_api.latest import IO, ComfyExtension, Input
@@ -54,7 +56,7 @@ def is_valid_task_creation_response(response: MoonvalleyPromptResponse) -> bool:
 def validate_task_creation_response(response) -> None:
     if not is_valid_task_creation_response(response):
         error_msg = f"Moonvalley Marey API: Initial request failed. Code: {response.code}, Message: {response.message}, Data: {response}"
-        logging.error(error_msg)
+        logger.error(error_msg)
         raise RuntimeError(error_msg)
 
 
@@ -84,7 +86,7 @@ def _get_video_dimensions(video: Input.Video) -> tuple[int, int]:
     try:
         return video.get_dimensions()
     except Exception as e:
-        logging.error("Error getting dimensions of video: %s", e)
+        logger.error("Error getting dimensions of video: %s", e)
         raise ValueError(f"Cannot get video dimensions: {e}") from e
 
 

@@ -689,7 +689,7 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                 weight_key = f"{prefix}weight"
                 weight = state_dict.pop(weight_key, None)
                 if weight is None:
-                    logging.warning(f"Missing weight for layer {layer_name}")
+                    logger.warning(f"Missing weight for layer {layer_name}")
                     return
 
                 manually_loaded_keys = [weight_key]

@@ -1,6 +1,8 @@
 import logging
 import math
 
+logger = logging.getLogger(__name__)
+
 import torch
 from typing_extensions import override
 
@@ -46,9 +48,9 @@ BYTEPLUS_TASK_STATUS_ENDPOINT = "/proxy/byteplus/api/v3/contents/generations/tas
 def get_image_url_from_response(response: ImageTaskCreationResponse) -> str:
     if response.error:
         error_msg = f"ByteDance request failed. Code: {response.error['code']}, message: {response.error['message']}"
-        logging.info(error_msg)
+        logger.info(error_msg)
         raise RuntimeError(error_msg)
-    logging.info("ByteDance task succeeded, image URL: %s", response.data[0]["url"])
+    logger.info("ByteDance task succeeded, image URL: %s", response.data[0]["url"])
     return response.data[0]["url"]
 
 

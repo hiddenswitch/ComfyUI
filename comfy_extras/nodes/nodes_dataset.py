@@ -1214,11 +1214,11 @@ class ResolutionBucket(io.ComfyNode):
             # Conditions stay as list of condition lists
             output_conditions.append(bucket_data["conditions"])
 
-            logging.info(
+            logger.info(
                 f"Resolution bucket ({h}x{w}): {len(bucket_data['latents'])} samples"
             )
 
-        logging.info(f"Created {len(buckets)} resolution buckets from {len(flat_latents)} samples")
+        logger.info(f"Created {len(buckets)} resolution buckets from {len(flat_latents)} samples")
         return io.NodeOutput(output_latents, output_conditions)
 
 

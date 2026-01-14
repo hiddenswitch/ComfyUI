@@ -9,6 +9,8 @@ import sys
 import logging
 import importlib
 
+logger = logging.getLogger(__name__)
+
 # Add ComfyUI to path so we can import modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,9 +33,9 @@ def generate_stubs_for_module(module_name: str) -> None:
             if api_class:
                 # Generate the stub file
                 AsyncToSyncConverter.generate_stub_file(api_class, sync_class)
-                logging.info(f"Generated stub file for {module_name}")
+                logger.info(f"Generated stub file for {module_name}")
             else:
-                logging.warning(
+                logger.warning(
                     f"Module {module_name} has ComfyAPISync but no ComfyAPI"
                 )
 
@@ -46,14 +48,14 @@ def generate_stubs_for_module(module_name: str) -> None:
 
             # Generate the stub file
             AsyncToSyncConverter.generate_stub_file(api_class, sync_class)
-            logging.info(f"Generated stub file for {module_name}")
+            logger.info(f"Generated stub file for {module_name}")
         else:
-            logging.warning(
+            logger.warning(
                 f"Module {module_name} does not export ComfyAPI or ComfyAPISync"
             )
 
     except Exception as e:
-        logging.error(f"Failed to generate stub for {module_name}: {e}")
+        logger.error(f"Failed to generate stub for {module_name}: {e}")
         import traceback
 
         traceback.print_exc()
@@ -63,7 +65,7 @@ def main():
     """Main function to generate all API stub files."""
     logging.basicConfig(level=logging.INFO)
 
-    logging.info("Starting stub generation...")
+    logger.info("Starting stub generation...")
 
     # Dynamically get module names from supported_versions
     api_modules = []
@@ -73,13 +75,13 @@ def main():
         if module_name not in api_modules:
             api_modules.append(module_name)
 
-    logging.info(f"Found {len(api_modules)} API modules: {api_modules}")
+    logger.info(f"Found {len(api_modules)} API modules: {api_modules}")
 
     # Generate stubs for each module
     for module_name in api_modules:
         generate_stubs_for_module(module_name)
 
-    logging.info("Stub generation complete!")
+    logger.info("Stub generation complete!")
 
 
 if __name__ == "__main__":
