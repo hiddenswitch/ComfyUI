@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ..modules.diffusionmodules.model import ResnetBlock, VideoConv3d
 from .vae_refiner import RMS_norm
-from ...model_management import vae_device, vae_offload_device, load_model_gpu, vae_dtype
+from ...model_management import vae_device, vae_offload_device, load_models_gpu, vae_dtype
 from ...model_patcher import ModelPatcher
 
 
@@ -122,5 +122,5 @@ class HunyuanVideo15SRModel():
         return self.model.state_dict()
 
     def resample_latent(self, latent):
-        load_model_gpu(self.patcher)
+        load_models_gpu([self.patcher])
         return self.model(latent.to(self.load_device))

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import math
 import torch
 
-from ....model_management import vae_offload_device, free_memory, load_model_gpu, get_torch_device
+from ....model_management import vae_offload_device, free_memory, load_models_gpu, get_torch_device
 from ....model_patcher import ModelPatcher
 from ....utils import state_dict_prefix_replace
 from ...mmaudio.vae.distributions import DiagonalGaussianDistribution
@@ -56,7 +56,7 @@ class ModelDeviceManager:
             self.patcher.model_size(),
             self.patcher.load_device,
         )
-        load_model_gpu(self.patcher)
+        load_models_gpu([self.patcher])
 
     def move_to_load_device(self, tensor: torch.Tensor) -> torch.Tensor:
         return tensor.to(self.patcher.load_device)
