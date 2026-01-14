@@ -13,6 +13,7 @@ This project is rigorously tested on specific hardware and software configuratio
 | **NVIDIA RTX 3090** (24GB) | 3.10 | 12.6.2 | Latest | 2.5.0a0 | `nvcr.io/nvidia/pytorch:24.10-py3` | ✅ Automated |
 | **NVIDIA RTX 3090** (24GB) | 3.10 | 12.3.2 | Latest | 2.2.0a0 | `nvcr.io/nvidia/pytorch:23.12-py3` | ✅ Automated |
 | **AMD RX 7600** (8GB) | 3.12 | ROCm 7.0 | 2.7.1 (Nightly) | N/A | `rocm/pytorch:rocm7.0_ubuntu24.04_py3.12_pytorch_release_2.7.1` | ✅ Automated |
+| **Intel Arc A770/A380** | 3.10 | XPU | 2.6.0+xpu | N/A | `intel/intel-extension-for-pytorch:2.8.10-xpu` | ✅ Automated |
 
 **AMD Note:** Automated testing for AMD uses a specific nightly build of PyTorch 2.7.1 optimized for RDNA 3 (`gfx110X`) from `https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/`.
 

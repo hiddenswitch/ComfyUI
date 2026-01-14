@@ -1,4 +1,5 @@
-## Generate new revision
+## Database Migrations
 
-1. Update models in `/comfy/app/database/models.py`
-2. Run `alembic revision --autogenerate -m "{your message}"`
+Migrations run automatically on server startup. No manual steps required.
+
+See `comfy/app/database/db.py:init_db()` for implementation.

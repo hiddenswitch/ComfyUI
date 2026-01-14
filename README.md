@@ -44,6 +44,7 @@ For users who want to run ComfyUI for generating images and videos.
     uv venv --python 3.12
     
     # Install ComfyUI LTS
+    # This is the only supported configuration. Lockfiles will always reflect the default wheels for the platform.
     uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
     
     # Run

@@ -343,6 +343,8 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("silveroxides/flux1-nf4-weights", "flux1-schnell-bnb-nf4.safetensors"),
     HuggingFile("Lightricks/LTX-Video", "ltx-video-2b-v0.9.safetensors"),
     HuggingFile("Lightricks/LTX-Video", "ltx-video-2b-v0.9.1.safetensors"),
+    HuggingFile("Lightricks/LTX-2", "ltx-2-19b-dev-fp8.safetensors"),
+    HuggingFile("Lightricks/LTX-2", "ltx-2-19b-dev.safetensors"),
     HuggingFile("Comfy-Org/Lumina_Image_2.0_Repackaged", "all_in_one/lumina_2.safetensors"),
     HuggingFile("Comfy-Org/flux1-schnell", "flux1-schnell-fp8.safetensors"),
     HuggingFile("Comfy-Org/flux1-dev", "flux1-dev-fp8.safetensors"),
@@ -378,8 +380,12 @@ KNOWN_IMAGE_ONLY_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_name="checkpoints")
 
 KNOWN_UPSCALERS: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("lllyasviel/Annotators", "RealESRGAN_x4plus.pth")
+    HuggingFile("lllyasviel/Annotators", "RealESRGAN_x4plus.pth"),
 ], folder_name="upscale_models")
+
+KNOWN_LATENT_UPSCALE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Lightricks/LTX-2", "ltx-2-spatial-upscaler-x2-1.0.safetensors"),
+], folder_name="latent_upscale_models")
 
 KNOWN_GLIGEN_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("comfyanonymous/GLIGEN_pruned_safetensors", "gligen_sd14_textbox_pruned.safetensors", show_in_ui=False),
@@ -416,6 +422,8 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors", show_in_ui=False),
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-8steps-V1.0.safetensors"),
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors", show_in_ui=False),
+    HuggingFile("Lightricks/LTX-2", "ltx-2-19b-distilled-lora-384.safetensors"),
+    HuggingFile("Lightricks/LTX-2-19b-LoRA-Camera-Control-Dolly-Left", "ltx-2-19b-lora-camera-control-dolly-left.safetensors"),
 ], folder_name="loras")
 
 KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
@@ -701,6 +709,8 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors"),
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b.safetensors"),
     HuggingFile("Comfy-Org/Ovis-Image", "split_files/text_encoders/ovis_2.5.safetensors"),
+    HuggingFile("Comfy-Org/ltx-2", "split_files/text_encoders/gemma_3_12B_it.safetensors"),
+    HuggingFile("Comfy-Org/ltx-2", "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"),
 ], folder_names=["clip", "text_encoders"])
 
 KNOWN_STYLE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
@@ -721,6 +731,7 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_IMAGE_ONLY_CHECKPOINTS,
     KNOWN_UNCLIP_CHECKPOINTS,
     KNOWN_UPSCALERS,
+    KNOWN_LATENT_UPSCALE_MODELS,
     KNOWN_STYLE_MODELS,
 ]
 

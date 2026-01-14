@@ -45,6 +45,9 @@ from ..app.frontend_management import FrontendManager
 from ..app.model_manager import ModelFileManager
 from ..app.subgraph_manager import SubgraphManager
 from ..app.user_manager import UserManager
+from ..app.assets.scanner import seed_assets
+from ..app.assets.api.routes import register_assets_system
+
 from ..cli_args import args
 from ..client.client_types import FileOutput
 from ..cmd import execution
@@ -253,7 +256,7 @@ def create_block_external_middleware():
         else:
             response = await handler(request)
 
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'self';"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data:; frame-src 'self'; object-src 'self';"
         return response
 
     return block_external_middleware
@@ -315,6 +318,7 @@ class PromptServer(ExecutorToClientProgress):
             else args.front_end_root
         )
         routes = web.RouteTableDef()
+        register_assets_system(self.app, self.user_manager)
         self.routes: web.RouteTableDef = routes
         self.last_node_id = None
         self.last_prompt_id = None
@@ -402,7 +406,7 @@ class PromptServer(ExecutorToClientProgress):
         @routes.get("/models/{folder}")
         async def get_models(request):
             folder = request.match_info.get("folder", None)
-            if not folder in folder_paths.folder_names_and_paths:
+            if folder not in folder_paths.folder_names_and_paths:
                 return web.Response(status=404)
             files = folder_paths.get_filename_list(folder)
             return web.json_response(files)
@@ -653,7 +657,7 @@ class PromptServer(ExecutorToClientProgress):
             folder_name = request.match_info.get("folder_name", None)
             if folder_name is None:
                 return web.Response(status=404)
-            if not "filename" in request.rel_url.query:
+            if "filename" not in request.rel_url.query:
                 return web.Response(status=404)
 
             filename = request.rel_url.query["filename"]
@@ -667,7 +671,7 @@ class PromptServer(ExecutorToClientProgress):
             if out is None:
                 return web.Response(status=404)
             dt = json.loads(out)
-            if not "__metadata__" in dt:
+            if "__metadata__" not in dt:
                 return web.Response(status=404)
             return web.json_response(dt["__metadata__"])
 
@@ -758,6 +762,8 @@ class PromptServer(ExecutorToClientProgress):
 
         @routes.get("/object_info")
         async def get_object_info(request):
+            # todo: what does this doozy do...
+            seed_assets(["models"])
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:

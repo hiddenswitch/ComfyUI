@@ -1,3 +1,4 @@
+import json
 import torch
 
 import comfy.model_management
@@ -9,7 +10,10 @@ from comfy.nodes import base_nodes as nodes
 from comfy import node_helpers
 
 from comfy.ldm.hunyuan_video.upsampler import HunyuanVideo15SRModel
-from comfy.cmd import folder_paths
+from comfy.ldm.lightricks.latent_upsampler import LatentUpsampler
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
+
+import comfy.utils
 
 class CLIPTextEncodeHunyuanDiT(io.ComfyNode):
     @classmethod
@@ -155,7 +159,7 @@ class HunyuanVideo15SuperResolution(io.ComfyNode):
         in_latent = latent["samples"]
         in_channels = in_latent.shape[1]
         cond_latent = torch.zeros([in_latent.shape[0], in_channels * 2 + 2, in_latent.shape[-3], in_latent.shape[-2], in_latent.shape[-1]], device=comfy.model_management.intermediate_device())
-        cond_latent[:, in_channels + 1 : 2 * in_channels + 1] = in_latent
+        cond_latent[:, in_channels + 1: 2 * in_channels + 1] = in_latent
         cond_latent[:, 2 * in_channels + 1] = 1
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image.movedim(-1, 1), in_latent.shape[-1] * 16, in_latent.shape[-2] * 16, "bilinear", "center").movedim(1, -1)
@@ -172,15 +176,15 @@ class HunyuanVideo15SuperResolution(io.ComfyNode):
         return io.NodeOutput(positive, negative, latent)
 
 
-class LatentUpscaleModelLoader(io.ComfyNode):
+class LatentUpscaleModelLoader1(io.ComfyNode):
     @classmethod
     def define_schema(cls):
         return io.Schema(
-            node_id="LatentUpscaleModelLoader",
-            display_name="Load Latent Upscale Model",
+            node_id="LatentUpscaleModelLoader1",
+            display_name="Load Latent Upscale Model (Legacy)",
             category="loaders",
             inputs=[
-                io.Combo.Input("model_name", options=folder_paths.get_filename_list("latent_upscale_models")),
+                io.Combo.Input("model_name", options=get_filename_list_with_downloadable("latent_upscale_models")),
             ],
             outputs=[
                 io.LatentUpscaleModel.Output(),
@@ -189,8 +193,8 @@ class LatentUpscaleModelLoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, model_name) -> io.NodeOutput:
-        model_path = folder_paths.get_full_path_or_raise("latent_upscale_models", model_name)
-        sd = comfy.utils.load_torch_file(model_path, safe_load=True)
+        model_path = get_full_path_or_raise("latent_upscale_models", model_name)
+        sd, metadata = comfy.utils.load_torch_file(model_path, safe_load=True, return_metadata=True)
 
         if "blocks.0.block.0.conv.weight" in sd:
             config = {
@@ -201,6 +205,8 @@ class LatentUpscaleModelLoader(io.ComfyNode):
                 "global_residual": False,
             }
             model_type = "720p"
+            model = HunyuanVideo15SRModel(model_type, config)
+            model.load_sd(sd)
         elif "up.0.block.0.conv1.conv.weight" in sd:
             sd = {key.replace("nin_shortcut", "nin_shortcut.conv", 1): value for key, value in sd.items()}
             config = {
@@ -209,12 +215,14 @@ class LatentUpscaleModelLoader(io.ComfyNode):
                 "block_out_channels": tuple(sd[f"up.{i}.block.0.conv1.conv.weight"].shape[0] for i in range(len([k for k in sd.keys() if k.startswith("up.") and k.endswith(".block.0.conv1.conv.weight")]))),
             }
             model_type = "1080p"
+            model = HunyuanVideo15SRModel(model_type, config)
+            model.load_sd(sd)
+        elif "post_upsample_res_blocks.0.conv2.bias" in sd:
+            config = json.loads(metadata["config"])
+            model = LatentUpsampler.from_config(config).to(dtype=comfy.model_management.vae_dtype(allowed_dtypes=[torch.bfloat16, torch.float32]))
+            model.load_state_dict(sd)
         else:
-             # Fallback or error
-             raise ValueError("Unsupported model config in sd")
-
-        model = HunyuanVideo15SRModel(model_type, config)
-        model.load_sd(sd)
+            raise ValueError(f"Unknown latent upscale model format in {model_name}")
 
         return io.NodeOutput(model)
 
@@ -418,7 +426,7 @@ class HunyuanExtension(ComfyExtension):
             HunyuanVideo15ImageToVideo,
             HunyuanVideo15SuperResolution,
             HunyuanVideo15LatentUpscaleWithModel,
-            LatentUpscaleModelLoader,
+            LatentUpscaleModelLoader1,
             HunyuanImageToVideo,
             EmptyHunyuanImageLatent,
             HunyuanRefinerLatent,

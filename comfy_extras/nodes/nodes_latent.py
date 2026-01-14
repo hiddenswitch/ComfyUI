@@ -8,7 +8,6 @@ import comfy.utils
 from comfy.component_model.tensor_types import Latent
 from comfy.nodes import base_nodes as nodes
 from comfy_api.latest import ComfyExtension, io
-from .nodes_post_processing import gaussian_kernel
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +265,7 @@ class LatentBatch(io.ComfyNode):
         return io.Schema(
             node_id="LatentBatch",
             category="latent/batch",
+            is_deprecated=True,
             inputs=[
                 io.Latent.Input("samples1"),
                 io.Latent.Input("samples2"),
@@ -477,6 +477,8 @@ class LatentOperationSharpen(io.ComfyNode):
 
     @classmethod
     def execute(cls, sharpen_radius, sigma, alpha) -> io.NodeOutput:
+        from .nodes_post_processing import gaussian_kernel
+
         def sharpen(latent, **kwargs):
             luminance = (torch.linalg.vector_norm(latent, dim=(1)) + 1e-6)[:, None]
             normalized_latent = latent / luminance

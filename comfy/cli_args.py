@@ -287,6 +287,7 @@ def _create_parser(enable_custom_nodes_configuration=True) -> EnhancedConfigArgP
         action="store_true",
         help="When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental)."
     )
+    parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning on startup for database synchronization.")
 
     default_db_url = db_config()
     parser.add_argument("--database-url", type=str, default=default_db_url, help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")

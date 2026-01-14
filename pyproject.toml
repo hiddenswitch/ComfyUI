@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.6.0"
+version = "0.9.1"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -18,11 +18,13 @@ classifiers = [
 ]
 
 dependencies = [
-    "comfyui-frontend-package>=1.35.9",
-    "comfyui-workflow-templates>=0.7.64",
-    "comfyui-embedded-docs>=0.3.1",
+    "comfyui-frontend-package>=1.36.14",
+    "comfyui-workflow-templates>=0.8.4",
+    "comfyui-embedded-docs>=0.4.0",
+    "comfy_kitchen>=0.2.6",
     "torch",
     "torchvision",
+    "torchaudio",
     "torchdiffeq>=0.2.3",
     "torchsde>=0.2.6",
     "einops>=0.6.0",
@@ -121,6 +123,7 @@ dependencies = [
     # yanked propcache is omitted
     # we want this upgraded
     "propcache>=0.4.1",
+    "blake3",
 ]
 
 [build-system]
@@ -144,50 +147,8 @@ dev = [
     "pylint",
     "astroid",
     "nvidia-ml-py",
+    "requests",
 ]
-
-cpu = [
-    "torch",
-    "torchvision",
-    "torchaudio",
-]
-
-cu126 = [
-    "torch",
-    "torchvision",
-    "triton ; sys_platform == 'Linux'",
-    "triton-windows ; sys_platform == 'win32'",
-    #    "torchaudio",
-]
-
-cu128 = [
-    "torch",
-    "torchvision",
-    "triton ; sys_platform == 'Linux'",
-    "triton-windows ; sys_platform == 'win32'",
-    #    "torchaudio",
-]
-
-rocm = [
-    "torch",
-    "torchvision",
-    #    "torchaudio",
-    "pytorch-triton-rocm",
-]
-
-# todo: wip for rocm libraries with Windows and better RDNA support when installing with uv
-# you'll need to look at the github actions workflow to see how this is done for e.g. an RX 7600
-# therock = [
-#     "rocm[libraries,devel] ; sys_platform != 'Darwin'",
-# ]
-
-mps = [
-    "torch",
-    "torchvision",
-    #    "torchaudio",
-]
-
-
 
 comfyui-manager = [
     "GitPython",
@@ -212,72 +173,19 @@ comfyui-workflow = "comfy.entrypoints.workflow:entrypoint"
 Homepage = "https://github.com/comfyanonymous/ComfyUI"
 Repository = "https://github.com/comfyanonymous/ComfyUI"
 
-[tool.uv]
-conflicts = [
-    [{ extra = "cpu" }, { extra = "cu126" }, { extra = "cu128" }, { extra = "rocm" }, { extra = "mps" }],
-]
-no-build-isolation-package = []
-prerelease = "allow"
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-rocm"
-url = "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0/"
-format = "flat"
-explicit = false
-
-[[tool.uv.index]]
-name = "pytorch-nightly-cpu"
-url = "https://download.pytorch.org/whl/nightly/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
-    { index = "pytorch-nightly-cpu", extra = "mps", marker = "sys_platform == 'darwin'" },
-]
-torchvision = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
-    { index = "pytorch-nightly-cpu", extra = "mps", marker = "sys_platform == 'darwin'" },
-]
-torchaudio = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    #    { index = "pytorch-cu126", extra = "cu126", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    #    { index = "pytorch-cu128", extra = "cu128", marker = "sys_platform == 'Linux' or sys_platform == 'win32'" },
-    #    { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'Linux'" },
-    #    { index = "pytorch-nightly-cpu", extra = "mps", marker = "sys_platform == 'darwin'" },
-]
-
-
 [tool.ruff]
 lint.select = [
     "N805", # invalid-first-argument-name-for-method
     "S307", # suspicious-eval-usage
     "S102", # exec
-    "T", # print-usage
+    "E",
+  "T", # print-usage
     "W", # pycodestyle Warnings
     "F", # Pyflakes
 ]
+
+lint.ignore = ["E501", "E722", "E731", "E712", "E402", "E741"]
+
 exclude = ["*.ipynb", "**/generated/*.pyi"]
 
 [tool.hatch.metadata]

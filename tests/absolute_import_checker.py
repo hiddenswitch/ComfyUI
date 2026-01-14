@@ -23,6 +23,33 @@ class AbsoluteImportChecker(BaseChecker):
     def __init__(self, linter: Optional["PyLinter"] = None) -> None:
         super().__init__(linter)
 
+    def visit_import(self, node: nodes.Import) -> None:
+        """
+        Check for absolute imports from the same top-level package.
+
+        This method is called for every `import ...` statement.
+        It checks if a module within 'comfy' or 'comfy_extras' packages
+        is using an absolute import from its own package, which should
+        be a relative import instead.
+
+        For example, inside `comfy/ldm/lightricks/embeddings_connector.py`,
+        an import like `import comfy.ldm.common_dit` will be flagged.
+        The preferred way would be `from ...common_dit import ...` or similar.
+        """
+        module_qname = node.root().qname()
+
+        current_top_package = module_qname.split('.')[0]
+        if current_top_package not in ['comfy', 'comfy_extras']:
+            return
+
+        # node.names is a list of (name, alias) tuples
+        # For `import comfy.ldm.common_dit`, names = [('comfy.ldm.common_dit', None)]
+        # For `import comfy.ldm.common_dit as cdit`, names = [('comfy.ldm.common_dit', 'cdit')]
+        for name, _ in node.names:
+            imported_top_package = name.split('.')[0]
+            if imported_top_package == current_top_package:
+                self.add_message('absolute-import-used', node=node, args=(name,))
+
     def visit_importfrom(self, node: nodes.ImportFrom) -> None:
         """
         Check for absolute imports from the same top-level package.

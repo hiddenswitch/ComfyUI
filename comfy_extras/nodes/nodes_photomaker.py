@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from comfy.cmd import folder_paths
 from comfy import clip_model, model_management, utils
 from comfy import clip_vision
 from comfy import ops
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 
@@ -125,7 +125,7 @@ class PhotoMakerLoader(io.ComfyNode):
             node_id="PhotoMakerLoader",
             category="_for_testing/photomaker",
             inputs=[
-                io.Combo.Input("photomaker_model_name", options=folder_paths.get_filename_list("photomaker")),
+                io.Combo.Input("photomaker_model_name", options=get_filename_list_with_downloadable("photomaker")),
             ],
             outputs=[
                 io.Photomaker.Output(),
@@ -135,7 +135,7 @@ class PhotoMakerLoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, photomaker_model_name):
-        photomaker_model_path = folder_paths.get_full_path_or_raise("photomaker", photomaker_model_name)
+        photomaker_model_path = get_full_path_or_raise("photomaker", photomaker_model_name)
         photomaker_model = PhotoMakerIDEncoder()
         data = utils.load_torch_file(photomaker_model_path, safe_load=True)
         if "id_encoder" in data:

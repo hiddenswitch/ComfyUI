@@ -1,4 +1,5 @@
-from comfy import model_downloader as folder_paths
+from comfy.cmd import folder_paths
+from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
 import comfy.sd
 import comfy.model_management
 from comfy.nodes import base_nodes as nodes
@@ -16,9 +17,9 @@ class TripleCLIPLoader(io.ComfyNode):
             category="advanced/loaders",
             description="[Recipes]\n\nsd3: clip-l, clip-g, t5",
             inputs=[
-                io.Combo.Input("clip_name1", options=folder_paths.get_filename_list("text_encoders")),
-                io.Combo.Input("clip_name2", options=folder_paths.get_filename_list("text_encoders")),
-                io.Combo.Input("clip_name3", options=folder_paths.get_filename_list("text_encoders")),
+                io.Combo.Input("clip_name1", options=get_filename_list_with_downloadable("text_encoders")),
+                io.Combo.Input("clip_name2", options=get_filename_list_with_downloadable("text_encoders")),
+                io.Combo.Input("clip_name3", options=get_filename_list_with_downloadable("text_encoders")),
             ],
             outputs=[
                 io.Clip.Output(),
@@ -27,9 +28,9 @@ class TripleCLIPLoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, clip_name1, clip_name2, clip_name3) -> io.NodeOutput:
-        clip_path1 = folder_paths.get_full_path_or_raise("text_encoders", clip_name1)
-        clip_path2 = folder_paths.get_full_path_or_raise("text_encoders", clip_name2)
-        clip_path3 = folder_paths.get_full_path_or_raise("text_encoders", clip_name3)
+        clip_path1 = get_full_path_or_raise("text_encoders", clip_name1)
+        clip_path2 = get_full_path_or_raise("text_encoders", clip_name2)
+        clip_path3 = get_full_path_or_raise("text_encoders", clip_name3)
         clip = comfy.sd.load_clip(ckpt_paths=[clip_path1, clip_path2, clip_path3], embedding_directory=folder_paths.get_folder_paths("embeddings"))
         return io.NodeOutput(clip)
 

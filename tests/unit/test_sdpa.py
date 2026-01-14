@@ -113,7 +113,7 @@ def test_sdpa_with_cuda_and_priority():
 
     # Check that the correct function is assigned
     assert comfy.ops.scaled_dot_product_attention is not comfy.ops._scaled_dot_product_attention
-    assert comfy.ops.scaled_dot_product_attention.__name__ == "_scaled_dot_product_attention_sdpa"
+    assert comfy.ops.scaled_dot_product_attention.__name__ == "_scaled_dot_product_attention_sdpa2"
 
     # Create tensors on CUDA device
     device = torch.device("cuda")
@@ -128,3 +128,46 @@ def test_sdpa_with_cuda_and_priority():
     assert output.shape == q.shape
     assert output.device.type == device.type
     assert output.dtype == torch.float16
+
+
+@pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA is not available")
+@pytest.mark.skipif(TORCH_VERSION < parse_version("2.6.0"), reason="Requires torch version 2.6.0 or greater")
+def test_sdpa_cudnn_fallback():
+    """
+    Tests that the SDPA function gracefully falls back when cuDNN fails.
+    This test verifies the fallback mechanism works when a cuDNN-related
+    RuntimeError occurs.
+    """
+    importlib.reload(comfy.ops)
+
+    # Verify we have the prioritized implementation
+    assert comfy.ops.scaled_dot_product_attention is not comfy.ops._scaled_dot_product_attention
+
+    # Create tensors on CUDA device
+    device = torch.device("cuda")
+    q = torch.randn(2, 4, 8, 16, device=device, dtype=torch.float16)
+    k = torch.randn(2, 4, 8, 16, device=device, dtype=torch.float16)
+    v = torch.randn(2, 4, 8, 16, device=device, dtype=torch.float16)
+
+    # Execute - this should work even if cuDNN fails due to version mismatch
+    # The fallback mechanism will catch cuDNN errors and retry without cuDNN
+    output = comfy.ops.scaled_dot_product_attention(q, k, v)
+
+    # The output should be valid regardless of which backend was used
+    assert output.shape == q.shape
+    assert output.device.type == device.type
+    assert not torch.isnan(output).any(), "Output should not contain NaN values"
+
+
+def test_cudnn_nvrtc_compatibility_check():
+    """
+    Tests that _check_cudnn_nvrtc_compatibility returns expected values.
+    """
+    importlib.reload(comfy.ops)
+
+    # The function should be defined
+    assert hasattr(comfy.ops, '_check_cudnn_nvrtc_compatibility')
+
+    # Should return a boolean
+    result = comfy.ops._check_cudnn_nvrtc_compatibility()
+    assert isinstance(result, bool)

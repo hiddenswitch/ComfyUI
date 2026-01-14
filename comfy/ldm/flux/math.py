@@ -4,6 +4,9 @@ from torch import Tensor
 
 from ..modules.attention import optimized_attention
 from ... import model_management
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def attention(q: Tensor, k: Tensor, v: Tensor, pe: Tensor, mask=None, transformer_options={}) -> Tensor:
@@ -21,20 +24,31 @@ def rope(pos: Tensor, dim: int, theta: int) -> Tensor:
     else:
         device = pos.device
 
-    scale = torch.linspace(0, (dim - 2) / dim, steps=dim//2, dtype=torch.float64, device=device)
-    omega = 1.0 / (theta**scale)
+    scale = torch.linspace(0, (dim - 2) / dim, steps=dim // 2, dtype=torch.float64, device=device)
+    omega = 1.0 / (theta ** scale)
     out = torch.einsum("...n,d->...nd", pos.to(dtype=torch.float32, device=device), omega)
     out = torch.stack([torch.cos(out), -torch.sin(out), torch.sin(out), torch.cos(out)], dim=-1)
     out = rearrange(out, "b n d (i j) -> b n d i j", i=2, j=2)
     return out.to(dtype=torch.float32, device=pos.device)
 
-def apply_rope1(x: Tensor, freqs_cis: Tensor):
-    x_ = x.to(dtype=freqs_cis.dtype).reshape(*x.shape[:-1], -1, 1, 2)
 
-    x_out = freqs_cis[..., 0] * x_[..., 0]
-    x_out.addcmul_(freqs_cis[..., 1], x_[..., 1])
+try:
+    from ...quant_ops import ck
 
-    return x_out.reshape(*x.shape).type_as(x)
+    apply_rope = ck.apply_rope
+    apply_rope1 = ck.apply_rope1
+except:
+    logger.debug("No comfy kitchen, using old apply_rope functions.")
 
-def apply_rope(xq: Tensor, xk: Tensor, freqs_cis: Tensor):
-    return apply_rope1(xq, freqs_cis), apply_rope1(xk, freqs_cis)
+
+    def apply_rope1(x: Tensor, freqs_cis: Tensor):
+        x_ = x.to(dtype=freqs_cis.dtype).reshape(*x.shape[:-1], -1, 1, 2)
+
+        x_out = freqs_cis[..., 0] * x_[..., 0]
+        x_out.addcmul_(freqs_cis[..., 1], x_[..., 1])
+
+        return x_out.reshape(*x.shape).type_as(x)
+
+
+    def apply_rope(xq: Tensor, xk: Tensor, freqs_cis: Tensor):
+        return apply_rope1(xq, freqs_cis), apply_rope1(xk, freqs_cis)
