@@ -14,7 +14,7 @@
   },
   "5": {
     "inputs": {
-      "value": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Cute_dog.jpg/320px-Cute_dog.jpg",
+      "value": "https://picsum.photos/id/237/320/320",
       "name": "",
       "title": "Image to query",
       "description": "",
