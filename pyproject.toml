@@ -124,6 +124,7 @@ dependencies = [
     # we want this upgraded
     "propcache>=0.4.1",
     "blake3",
+    "requests",
 ]
 
 [build-system]
@@ -147,7 +148,6 @@ dev = [
     "pylint",
     "astroid",
     "nvidia-ml-py",
-    "requests",
 ]
 
 comfyui-manager = [

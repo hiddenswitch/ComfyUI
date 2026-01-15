@@ -93,7 +93,7 @@ jobs:
         run: |
           # our testing infrastructure uses RX 7XXX GPUs, this includes express support for gfx1102, gfx1101 which will resolve crashes
           export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
+          export UV_PYTHON=/opt/venv/bin/python
           export UV_PRERELEASE=allow
           uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ "rocm[libraries]<7.9" "torch==2.7.1+rocm7.0.0rc20250922" "torchaudio==2.7.1a0+rocm7.0.0rc20250922" "torchvision==0.22.1+rocm7.0.0rc20250922" "pytorch_triton_rocm" --pre
       - uses: actions/checkout@v4
@@ -106,7 +106,7 @@ jobs:
       - name: Write Overrides
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
+          export UV_PYTHON=/opt/venv/bin/python
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
           uv pip freeze | grep -E 'torch|rocm|numpy|opencv' >> overrides.txt
@@ -114,7 +114,7 @@ jobs:
       - name: Install ComfyUI
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
+          export UV_PYTHON=/opt/venv/bin/python
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
