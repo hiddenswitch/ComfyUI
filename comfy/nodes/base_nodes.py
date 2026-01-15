@@ -836,7 +836,7 @@ class VAELoader:
 
     # TODO: scale factor?
     def load_vae(self, vae_name):
-        metadata = {}
+        metadata = None
         if vae_name == "pixel_space":
             sd_ = {}
             sd_["pixel_space_vae"] = torch.tensor(1.0)

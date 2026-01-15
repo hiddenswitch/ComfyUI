@@ -1072,6 +1072,7 @@ class CLIPType(Enum):
     KANDINSKY5 = 22
     KANDINSKY5_IMAGE = 23
     NEWBIE = 24
+    FLUX2 = 25
 
 
 @dataclasses.dataclass
@@ -1114,6 +1115,7 @@ class TEModel(Enum):
     QWEN3_2B = 17
     GEMMA_3_12B = 18
     JINA_CLIP_2 = 19
+    QWEN3_8B = 20
 
 
 def detect_te_model(sd):
@@ -1157,6 +1159,8 @@ def detect_te_model(sd):
                 return TEModel.QWEN3_4B
             elif weight.shape[0] == 2048:
                 return TEModel.QWEN3_2B
+            elif weight.shape[0] == 4096:
+                return TEModel.QWEN3_8B
         if weight.shape[0] == 5120:
             if "model.layers.39.post_attention_layernorm.weight" in sd:
                 return TEModel.MISTRAL3_24B
@@ -1284,11 +1288,18 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.tokenizer = flux.Flux2Tokenizer
             tokenizer_data["tekken_model"] = clip_data[0].get("tekken_model", None)
         elif te_model == TEModel.QWEN3_4B:
-            clip_target.clip = z_image.te(**llama_detect(clip_data))
-            clip_target.tokenizer = z_image.ZImageTokenizer
+            if clip_type == CLIPType.FLUX or clip_type == CLIPType.FLUX2:
+                clip_target.clip = flux.klein_te(**llama_detect(clip_data), model_type="qwen3_4b")
+                clip_target.tokenizer = flux.KleinTokenizer
+            else:
+                clip_target.clip = z_image.te(**llama_detect(clip_data))
+                clip_target.tokenizer = z_image.ZImageTokenizer
         elif te_model == TEModel.QWEN3_2B:
             clip_target.clip = ovis.te(**llama_detect(clip_data))
             clip_target.tokenizer = ovis.OvisTokenizer
+        elif te_model == TEModel.QWEN3_8B:
+            clip_target.clip = flux.klein_te(**llama_detect(clip_data), model_type="qwen3_8b")
+            clip_target.tokenizer = flux.KleinTokenizer8B
         elif te_model == TEModel.JINA_CLIP_2:
             clip_target.clip = jina_clip_2.JinaClip2TextModelWrapper
             clip_target.tokenizer = jina_clip_2.JinaClip2TokenizerWrapper
