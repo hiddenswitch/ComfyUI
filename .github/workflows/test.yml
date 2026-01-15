@@ -126,7 +126,12 @@ jobs:
         run: |
           # only use dGPU
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v tests/unit
+          # Enable fault handler for better crash diagnostics
+          export PYTHONFAULTHANDLER=1
+          # First verify pytest collection works
+          python -m pytest --collect-only tests/unit 2>&1 | tail -20 || true
+          echo "=== Running tests ==="
+          python -m pytest -v --tb=short tests/unit
 #      - name: Run inference tests
 #        run: |
 #          # only use dGPU
@@ -178,7 +183,12 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v tests/unit
+          # Enable fault handler for better crash diagnostics
+          export PYTHONFAULTHANDLER=1
+          # First verify pytest collection works
+          python -m pytest --collect-only tests/unit 2>&1 | tail -20 || true
+          echo "=== Running tests ==="
+          python -m pytest -v --tb=short tests/unit
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
