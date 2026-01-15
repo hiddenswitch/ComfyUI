@@ -26,7 +26,7 @@ from comfy_api_nodes.util import (
     upload_images_to_comfyapi,
     validate_string,
 )
-from folder_paths import get_output_directory
+from comfy.cmd.folder_paths import get_output_directory
 
 
 class MeshyTextToModelNode(IO.ComfyNode):

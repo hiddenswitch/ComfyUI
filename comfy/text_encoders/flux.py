@@ -257,17 +257,21 @@ class KleinTokenizer8B(KleinTokenizer):
 
 
 class Qwen3_4BModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer=[9, 18, 27], layer_idx=None, dtype=None, attention_mask=True, model_options=None):
+    def __init__(self, device="cpu", layer=[9, 18, 27], layer_idx=None, textmodel_json_config=None, dtype=None, attention_mask=True, model_options=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         if model_options is None:
             model_options = {}
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=Qwen3_4B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=Qwen3_4B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 
 class Qwen3_8BModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer=[9, 18, 27], layer_idx=None, dtype=None, attention_mask=True, model_options=None):
+    def __init__(self, device="cpu", layer=[9, 18, 27], layer_idx=None, textmodel_json_config=None, dtype=None, attention_mask=True, model_options=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         if model_options is None:
             model_options = {}
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=Qwen3_8B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=Qwen3_8B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 
 def klein_te(dtype_llama=None, llama_quantization_metadata=None, model_type="qwen3_4b"):
@@ -275,6 +279,8 @@ def klein_te(dtype_llama=None, llama_quantization_metadata=None, model_type="qwe
         model = Qwen3_4BModel
     elif model_type == "qwen3_8b":
         model = Qwen3_8BModel
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
 
     class Flux2TEModel_(Flux2TEModel):
         def __init__(self, device="cpu", dtype=None, model_options=None):
