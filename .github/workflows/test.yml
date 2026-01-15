@@ -128,9 +128,10 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
           export PYTHONFAULTHANDLER=1
-          # First verify pytest collection works
-          python -m pytest --collect-only tests/unit 2>&1 | tail -20 || true
-          echo "=== Running tests ==="
+          # Run a simple test first to verify pytest works
+          echo "=== Running simple test first ==="
+          python -m pytest -v --tb=short tests/unit/test_cli_args.py -x || { echo "Simple test failed"; exit 1; }
+          echo "=== Running all tests ==="
           python -m pytest -v --tb=short tests/unit
 #      - name: Run inference tests
 #        run: |
@@ -185,9 +186,10 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
           export PYTHONFAULTHANDLER=1
-          # First verify pytest collection works
-          python -m pytest --collect-only tests/unit 2>&1 | tail -20 || true
-          echo "=== Running tests ==="
+          # Run a simple test first to verify pytest works
+          echo "=== Running simple test first ==="
+          python -m pytest -v --tb=short tests/unit/test_cli_args.py -x || { echo "Simple test failed"; exit 1; }
+          echo "=== Running all tests ==="
           python -m pytest -v --tb=short tests/unit
 #      - name: Run inference tests
 #        run: |
