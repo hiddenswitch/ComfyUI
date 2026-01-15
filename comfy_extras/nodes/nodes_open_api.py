@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageSequence, ImageOps, ExifTags
 from PIL.Image import Exif
-from PIL.ImageFile import ImageFile
+from PIL import ImageFile
 from PIL.PngImagePlugin import PngInfo
 from fsspec.core import OpenFile
 from fsspec.generic import GenericFileSystem

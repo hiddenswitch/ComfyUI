@@ -459,15 +459,16 @@ def test_file_request_parameter_glob(use_temporary_input_directory):
 
 def test_file_request_to_http_url_no_exceptions():
     n = ImageRequestParameter()
-    loaded_image, loaded_mask = n.execute(value="https://picsum.photos/484/480.jpg")
+    # Use httpbin.org which returns a stable 239x178 JPEG test image
+    loaded_image, loaded_mask = n.execute(value="https://httpbin.org/image/jpeg")
     # This is an RGB jpg, so it will be converted to RGBA
     b, height, width, channels = loaded_image.shape
     assert b == 1
-    assert width == 484
-    assert height == 480
+    assert width == 239
+    assert height == 178
     assert channels == 3
     # Mask should be all zeros
-    assert loaded_mask.shape == (1, 480, 484)
+    assert loaded_mask.shape == (1, 178, 239)
     assert torch.all(loaded_mask == 0.0)
 
 
