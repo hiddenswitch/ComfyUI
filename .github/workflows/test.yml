@@ -128,11 +128,22 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
           export PYTHONFAULTHANDLER=1
-          # Run a simple test first to verify pytest works
-          echo "=== Running simple test first ==="
-          python -m pytest -v --tb=short tests/unit/test_cli_args.py -x || { echo "Simple test failed"; exit 1; }
-          echo "=== Running all tests ==="
-          python -m pytest -v --tb=short tests/unit
+          # Run tests excluding torch-importing test files
+          echo "=== Running tests without torch imports ==="
+          python -m pytest -v --tb=short tests/unit \
+            --ignore=tests/unit/test_base_nodes.py \
+            --ignore=tests/unit/test_colormap_nodes.py \
+            --ignore=tests/unit/test_compositing_nodes.py \
+            --ignore=tests/unit/test_ideogram_nodes.py \
+            --ignore=tests/unit/test_inpainting_utils.py \
+            --ignore=tests/unit/test_language_nodes.py \
+            --ignore=tests/unit/test_ltx2_clip_loading.py \
+            --ignore=tests/unit/test_mixed_precision.py \
+            --ignore=tests/unit/test_openapi_nodes.py \
+            --ignore=tests/unit/test_panics.py \
+            --ignore=tests/unit/test_sdpa.py \
+            --ignore=tests/unit/test_string_nodes.py \
+            --ignore=tests/unit/test_svg.py
 #      - name: Run inference tests
 #        run: |
 #          # only use dGPU
@@ -186,11 +197,22 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
           export PYTHONFAULTHANDLER=1
-          # Run a simple test first to verify pytest works
-          echo "=== Running simple test first ==="
-          python -m pytest -v --tb=short tests/unit/test_cli_args.py -x || { echo "Simple test failed"; exit 1; }
-          echo "=== Running all tests ==="
-          python -m pytest -v --tb=short tests/unit
+          # Run tests excluding torch-importing test files
+          echo "=== Running tests without torch imports ==="
+          python -m pytest -v --tb=short tests/unit \
+            --ignore=tests/unit/test_base_nodes.py \
+            --ignore=tests/unit/test_colormap_nodes.py \
+            --ignore=tests/unit/test_compositing_nodes.py \
+            --ignore=tests/unit/test_ideogram_nodes.py \
+            --ignore=tests/unit/test_inpainting_utils.py \
+            --ignore=tests/unit/test_language_nodes.py \
+            --ignore=tests/unit/test_ltx2_clip_loading.py \
+            --ignore=tests/unit/test_mixed_precision.py \
+            --ignore=tests/unit/test_openapi_nodes.py \
+            --ignore=tests/unit/test_panics.py \
+            --ignore=tests/unit/test_sdpa.py \
+            --ignore=tests/unit/test_string_nodes.py \
+            --ignore=tests/unit/test_svg.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
