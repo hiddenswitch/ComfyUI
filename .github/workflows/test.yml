@@ -130,43 +130,39 @@ jobs:
           export PYTHONFAULTHANDLER=1
           # Run unit tests - skip tests that import torch at module level or trigger node imports
           # ROCm's SWIG bindings cause crashes during pytest cleanup when torch modules are loaded
-          # Parse output to determine if tests passed (crash during cleanup gives exit code 1 even when tests pass)
+          # Use tee to capture output and check for failures (crash during cleanup gives exit code 1 even when tests pass)
           echo "=== Running unit tests ==="
-          python -c "
-          import subprocess
-          import sys
-          import os
-          import re
-          result = subprocess.run([
-              sys.executable, '-m', 'pytest', '-v', '--tb=short', 'tests/unit',
-              '--ignore=tests/unit/test_panics.py',
-              '--ignore=tests/unit/test_openapi_nodes.py',
-              '--ignore=tests/unit/test_mixed_precision.py',
-              '--ignore=tests/unit/test_sdpa.py',
-              '--ignore=tests/unit/test_ltx2_clip_loading.py',
-              '--ignore=tests/unit/test_language_nodes.py',
-              '--ignore=tests/unit/test_base_nodes.py',
-              '--ignore=tests/unit/test_colormap_nodes.py',
-              '--ignore=tests/unit/test_compositing_nodes.py',
-              '--ignore=tests/unit/test_ideogram_nodes.py',
-              '--ignore=tests/unit/test_inpainting_utils.py',
-              '--ignore=tests/unit/test_string_nodes.py',
-              '--ignore=tests/unit/test_svg.py',
-              '--ignore=tests/unit/test_validation.py',
-              '--ignore=tests/unit/comfy_extras_test/image_stitch_test.py',
-              '--ignore=tests/unit/comfy_api_test/video_types_test.py',
-          ], capture_output=True, text=True)
-          print(result.stdout)
-          print(result.stderr, file=sys.stderr)
-          # Check if all tests passed (look for 'FAILED' or 'ERROR' in output)
-          has_failures = 'FAILED' in result.stdout or 'ERROR' in result.stdout or 'error' in result.stderr.lower()
-          # If no failures found and there were PASSED tests, consider it success
-          has_passed = 'PASSED' in result.stdout
-          if has_passed and not has_failures:
-              print('All tests passed (ignoring cleanup crash)')
-              os._exit(0)
-          os._exit(result.returncode if result.returncode != 0 else 1)
-          "
+          set +e
+          python -m pytest -v --tb=short tests/unit \
+            --ignore=tests/unit/test_panics.py \
+            --ignore=tests/unit/test_openapi_nodes.py \
+            --ignore=tests/unit/test_mixed_precision.py \
+            --ignore=tests/unit/test_sdpa.py \
+            --ignore=tests/unit/test_ltx2_clip_loading.py \
+            --ignore=tests/unit/test_language_nodes.py \
+            --ignore=tests/unit/test_base_nodes.py \
+            --ignore=tests/unit/test_colormap_nodes.py \
+            --ignore=tests/unit/test_compositing_nodes.py \
+            --ignore=tests/unit/test_ideogram_nodes.py \
+            --ignore=tests/unit/test_inpainting_utils.py \
+            --ignore=tests/unit/test_string_nodes.py \
+            --ignore=tests/unit/test_svg.py \
+            --ignore=tests/unit/test_validation.py \
+            --ignore=tests/unit/comfy_extras_test/image_stitch_test.py \
+            --ignore=tests/unit/comfy_api_test/video_types_test.py \
+            2>&1 | tee /tmp/pytest_output.txt
+          PYTEST_EXIT=${PIPESTATUS[0]}
+          # Check if tests passed (look for FAILED in output)
+          if grep -q "FAILED" /tmp/pytest_output.txt; then
+            echo "Tests failed"
+            exit 1
+          elif grep -q "PASSED" /tmp/pytest_output.txt; then
+            echo "All tests passed (ignoring cleanup crash if any)"
+            exit 0
+          else
+            echo "No tests ran or unknown state"
+            exit $PYTEST_EXIT
+          fi
 #      - name: Run inference tests
 #        run: |
 #          # only use dGPU
@@ -222,43 +218,39 @@ jobs:
           export PYTHONFAULTHANDLER=1
           # Run unit tests - skip tests that import torch at module level or trigger node imports
           # IPEX's SWIG bindings cause crashes during pytest cleanup when torch modules are loaded
-          # Parse output to determine if tests passed (crash during cleanup gives exit code 1 even when tests pass)
+          # Use tee to capture output and check for failures (crash during cleanup gives exit code 1 even when tests pass)
           echo "=== Running unit tests ==="
-          python -c "
-          import subprocess
-          import sys
-          import os
-          import re
-          result = subprocess.run([
-              sys.executable, '-m', 'pytest', '-v', '--tb=short', 'tests/unit',
-              '--ignore=tests/unit/test_panics.py',
-              '--ignore=tests/unit/test_openapi_nodes.py',
-              '--ignore=tests/unit/test_mixed_precision.py',
-              '--ignore=tests/unit/test_sdpa.py',
-              '--ignore=tests/unit/test_ltx2_clip_loading.py',
-              '--ignore=tests/unit/test_language_nodes.py',
-              '--ignore=tests/unit/test_base_nodes.py',
-              '--ignore=tests/unit/test_colormap_nodes.py',
-              '--ignore=tests/unit/test_compositing_nodes.py',
-              '--ignore=tests/unit/test_ideogram_nodes.py',
-              '--ignore=tests/unit/test_inpainting_utils.py',
-              '--ignore=tests/unit/test_string_nodes.py',
-              '--ignore=tests/unit/test_svg.py',
-              '--ignore=tests/unit/test_validation.py',
-              '--ignore=tests/unit/comfy_extras_test/image_stitch_test.py',
-              '--ignore=tests/unit/comfy_api_test/video_types_test.py',
-          ], capture_output=True, text=True)
-          print(result.stdout)
-          print(result.stderr, file=sys.stderr)
-          # Check if all tests passed (look for 'FAILED' or 'ERROR' in output)
-          has_failures = 'FAILED' in result.stdout or 'ERROR' in result.stdout or 'error' in result.stderr.lower()
-          # If no failures found and there were PASSED tests, consider it success
-          has_passed = 'PASSED' in result.stdout
-          if has_passed and not has_failures:
-              print('All tests passed (ignoring cleanup crash)')
-              os._exit(0)
-          os._exit(result.returncode if result.returncode != 0 else 1)
-          "
+          set +e
+          python -m pytest -v --tb=short tests/unit \
+            --ignore=tests/unit/test_panics.py \
+            --ignore=tests/unit/test_openapi_nodes.py \
+            --ignore=tests/unit/test_mixed_precision.py \
+            --ignore=tests/unit/test_sdpa.py \
+            --ignore=tests/unit/test_ltx2_clip_loading.py \
+            --ignore=tests/unit/test_language_nodes.py \
+            --ignore=tests/unit/test_base_nodes.py \
+            --ignore=tests/unit/test_colormap_nodes.py \
+            --ignore=tests/unit/test_compositing_nodes.py \
+            --ignore=tests/unit/test_ideogram_nodes.py \
+            --ignore=tests/unit/test_inpainting_utils.py \
+            --ignore=tests/unit/test_string_nodes.py \
+            --ignore=tests/unit/test_svg.py \
+            --ignore=tests/unit/test_validation.py \
+            --ignore=tests/unit/comfy_extras_test/image_stitch_test.py \
+            --ignore=tests/unit/comfy_api_test/video_types_test.py \
+            2>&1 | tee /tmp/pytest_output.txt
+          PYTEST_EXIT=${PIPESTATUS[0]}
+          # Check if tests passed (look for FAILED in output)
+          if grep -q "FAILED" /tmp/pytest_output.txt; then
+            echo "Tests failed"
+            exit 1
+          elif grep -q "PASSED" /tmp/pytest_output.txt; then
+            echo "All tests passed (ignoring cleanup crash if any)"
+            exit 0
+          else
+            echo "No tests ran or unknown state"
+            exit $PYTEST_EXIT
+          fi
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
