@@ -123,6 +123,7 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
+        shell: bash
         run: |
           # only use dGPU
           cd ${GITHUB_WORKSPACE}/src
@@ -212,6 +213,7 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
+        shell: bash
         run: |
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
