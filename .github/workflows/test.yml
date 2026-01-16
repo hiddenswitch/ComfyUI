@@ -153,8 +153,8 @@ jobs:
             --ignore=tests/unit/comfy_api_test/video_types_test.py \
             2>&1 | tee /tmp/pytest_output.txt
           PYTEST_EXIT=${PIPESTATUS[0]}
-          # Check if tests passed (look for FAILED in output)
-          if grep -q "FAILED" /tmp/pytest_output.txt; then
+          # Check if tests passed (look for pytest FAILED pattern - " FAILED" with space, not "IMPORT FAILED")
+          if grep -qE " FAILED$| FAILED " /tmp/pytest_output.txt; then
             echo "Tests failed"
             exit 1
           elif grep -q "PASSED" /tmp/pytest_output.txt; then
@@ -242,8 +242,8 @@ jobs:
             --ignore=tests/unit/comfy_api_test/video_types_test.py \
             2>&1 | tee /tmp/pytest_output.txt
           PYTEST_EXIT=${PIPESTATUS[0]}
-          # Check if tests passed (look for FAILED in output)
-          if grep -q "FAILED" /tmp/pytest_output.txt; then
+          # Check if tests passed (look for pytest FAILED pattern - " FAILED" with space, not "IMPORT FAILED")
+          if grep -qE " FAILED$| FAILED " /tmp/pytest_output.txt; then
             echo "Tests failed"
             exit 1
           elif grep -q "PASSED" /tmp/pytest_output.txt; then
