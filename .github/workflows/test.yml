@@ -128,8 +128,8 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
           export PYTHONFAULTHANDLER=1
-          # Run unit tests - skip tests that import torch at module level
-          # ROCm's SWIG bindings cause crashes during pytest collection when torch is imported
+          # Run unit tests - skip tests that import torch at module level or trigger node imports
+          # ROCm's SWIG bindings cause crashes during pytest cleanup when torch modules are loaded
           echo "=== Running unit tests ==="
           python -m pytest -v --tb=short tests/unit \
             --ignore=tests/unit/test_panics.py \
@@ -145,6 +145,7 @@ jobs:
             --ignore=tests/unit/test_inpainting_utils.py \
             --ignore=tests/unit/test_string_nodes.py \
             --ignore=tests/unit/test_svg.py \
+            --ignore=tests/unit/test_validation.py \
             --ignore=tests/unit/comfy_extras_test/image_stitch_test.py \
             --ignore=tests/unit/comfy_api_test/video_types_test.py
 #      - name: Run inference tests
@@ -200,8 +201,8 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           # Enable fault handler for better crash diagnostics
           export PYTHONFAULTHANDLER=1
-          # Run unit tests - skip tests that import torch at module level
-          # IPEX's SWIG bindings cause crashes during pytest collection when torch is imported
+          # Run unit tests - skip tests that import torch at module level or trigger node imports
+          # IPEX's SWIG bindings cause crashes during pytest cleanup when torch modules are loaded
           echo "=== Running unit tests ==="
           python -m pytest -v --tb=short tests/unit \
             --ignore=tests/unit/test_panics.py \
@@ -217,6 +218,7 @@ jobs:
             --ignore=tests/unit/test_inpainting_utils.py \
             --ignore=tests/unit/test_string_nodes.py \
             --ignore=tests/unit/test_svg.py \
+            --ignore=tests/unit/test_validation.py \
             --ignore=tests/unit/comfy_extras_test/image_stitch_test.py \
             --ignore=tests/unit/comfy_api_test/video_types_test.py
 #      - name: Run inference tests
