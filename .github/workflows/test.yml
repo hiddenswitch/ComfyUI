@@ -123,50 +123,11 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
-        shell: bash
         run: |
-          # only use dGPU
           cd ${GITHUB_WORKSPACE}/src
-          # Enable fault handler for better crash diagnostics
-          export PYTHONFAULTHANDLER=1
-          # Run unit tests - skip tests that import torch at module level or trigger node imports
-          # ROCm's SWIG bindings cause crashes during pytest cleanup when torch modules are loaded
-          # Use tee to capture output and check for failures (crash during cleanup gives exit code 1 even when tests pass)
-          echo "=== Running unit tests ==="
-          set +e
-          python -m pytest -v --tb=short tests/unit \
-            --ignore=tests/unit/test_panics.py \
-            --ignore=tests/unit/test_openapi_nodes.py \
-            --ignore=tests/unit/test_mixed_precision.py \
-            --ignore=tests/unit/test_sdpa.py \
-            --ignore=tests/unit/test_ltx2_clip_loading.py \
-            --ignore=tests/unit/test_language_nodes.py \
-            --ignore=tests/unit/test_base_nodes.py \
-            --ignore=tests/unit/test_colormap_nodes.py \
-            --ignore=tests/unit/test_compositing_nodes.py \
-            --ignore=tests/unit/test_ideogram_nodes.py \
-            --ignore=tests/unit/test_inpainting_utils.py \
-            --ignore=tests/unit/test_string_nodes.py \
-            --ignore=tests/unit/test_svg.py \
-            --ignore=tests/unit/test_validation.py \
-            --ignore=tests/unit/comfy_extras_test/image_stitch_test.py \
-            --ignore=tests/unit/comfy_api_test/video_types_test.py \
-            2>&1 | tee /tmp/pytest_output.txt
-          PYTEST_EXIT=${PIPESTATUS[0]}
-          # Check if tests passed (look for pytest FAILED pattern - " FAILED" with space, not "IMPORT FAILED")
-          if grep -qE " FAILED$| FAILED " /tmp/pytest_output.txt; then
-            echo "Tests failed"
-            exit 1
-          elif grep -q "PASSED" /tmp/pytest_output.txt; then
-            echo "All tests passed (ignoring cleanup crash if any)"
-            exit 0
-          else
-            echo "No tests ran or unknown state"
-            exit $PYTEST_EXIT
-          fi
+          python -m pytest -v --tb=short tests/unit --ignore=tests/unit/test_panics.py
 #      - name: Run inference tests
 #        run: |
-#          # only use dGPU
 #          cd ${GITHUB_WORKSPACE}/src
 #          python -m pytest -v tests/inference
   build_and_execute_intel:
@@ -213,46 +174,9 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
-        shell: bash
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          # Enable fault handler for better crash diagnostics
-          export PYTHONFAULTHANDLER=1
-          # Run unit tests - skip tests that import torch at module level or trigger node imports
-          # IPEX's SWIG bindings cause crashes during pytest cleanup when torch modules are loaded
-          # Use tee to capture output and check for failures (crash during cleanup gives exit code 1 even when tests pass)
-          echo "=== Running unit tests ==="
-          set +e
-          python -m pytest -v --tb=short tests/unit \
-            --ignore=tests/unit/test_panics.py \
-            --ignore=tests/unit/test_openapi_nodes.py \
-            --ignore=tests/unit/test_mixed_precision.py \
-            --ignore=tests/unit/test_sdpa.py \
-            --ignore=tests/unit/test_ltx2_clip_loading.py \
-            --ignore=tests/unit/test_language_nodes.py \
-            --ignore=tests/unit/test_base_nodes.py \
-            --ignore=tests/unit/test_colormap_nodes.py \
-            --ignore=tests/unit/test_compositing_nodes.py \
-            --ignore=tests/unit/test_ideogram_nodes.py \
-            --ignore=tests/unit/test_inpainting_utils.py \
-            --ignore=tests/unit/test_string_nodes.py \
-            --ignore=tests/unit/test_svg.py \
-            --ignore=tests/unit/test_validation.py \
-            --ignore=tests/unit/comfy_extras_test/image_stitch_test.py \
-            --ignore=tests/unit/comfy_api_test/video_types_test.py \
-            2>&1 | tee /tmp/pytest_output.txt
-          PYTEST_EXIT=${PIPESTATUS[0]}
-          # Check if tests passed (look for pytest FAILED pattern - " FAILED" with space, not "IMPORT FAILED")
-          if grep -qE " FAILED$| FAILED " /tmp/pytest_output.txt; then
-            echo "Tests failed"
-            exit 1
-          elif grep -q "PASSED" /tmp/pytest_output.txt; then
-            echo "All tests passed (ignoring cleanup crash if any)"
-            exit 0
-          else
-            echo "No tests ran or unknown state"
-            exit $PYTEST_EXIT
-          fi
+          python -m pytest -v --tb=short tests/unit --ignore=tests/unit/test_panics.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
