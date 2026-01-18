@@ -25,8 +25,8 @@ RUN apt-get update && \
     apt-get purge -y && \
     rm -rf /var/lib/apt/lists/*
 
-# torchaudio
-RUN uv pip install --no-deps https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0/torchaudio-2.7.1%2Brocm7.0.0.git95c61b41-cp312-cp312-linux_x86_64.whl
+# upgrade transformers to fix compatibility issues
+RUN uv pip install --no-deps -U transformers
 
 # sources for building this dockerfile
 # use these lines to build from the local fs
