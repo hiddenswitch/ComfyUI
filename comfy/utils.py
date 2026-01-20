@@ -1050,7 +1050,9 @@ def bislerp(samples, width, height):
 
 
 def lanczos(samples, width, height):
-    images = [Image.fromarray(np.clip(255. * image.movedim(0, -1).cpu().numpy(), 0, 255).astype(np.uint8)) for image in samples]
+    #the below API is strict and expects grayscale to be squeezed
+    samples = samples.squeeze(1) if samples.shape[1] == 1 else samples.movedim(1, -1)
+    images = [Image.fromarray(np.clip(255. * image.cpu().numpy(), 0, 255).astype(np.uint8)) for image in samples]
     images = [image.resize((width, height), resample=Image.Resampling.LANCZOS) for image in images]
     images = [torch.from_numpy(np.array(image).astype(np.float32) / 255.0).movedim(-1, 0) for image in images]
     result = torch.stack(images)
@@ -1262,12 +1264,18 @@ class _DisabledProgressBar:
         pass
 
 
+# Throttle settings for progress bar updates to reduce WebSocket flooding
+PROGRESS_THROTTLE_MIN_INTERVAL = 0.1  # 100ms minimum between updates
+PROGRESS_THROTTLE_MIN_PERCENT = 0.5   # 0.5% minimum progress change
+
 class ProgressBar:
     def __init__(self, total: float, node_id: Any = None):
         self.total: float = total
         self.current: float = 0.0
         self.server = current_execution_context().server
         self.node_id = node_id
+        self._last_update_time = 0.0
+        self._last_sent_value = -1
 
     def update_absolute(self, value, total=None, preview_image_or_output=None):
         if total is not None:
@@ -1278,6 +1286,7 @@ class ProgressBar:
             value = self.total
         self.current = value
         _progress_bar_update(self.current, self.total, preview_image_or_output, server=self.server, node_id=self.node_id)
+        # todo: there was some throttling code here that should be implemented elsewhere
 
     def update(self, value):
         self.update_absolute(self.current + value)

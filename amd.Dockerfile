@@ -4,6 +4,7 @@ ENV TZ="Etc/UTC"
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_NO_CACHE=1
+ENV UV_PYTHON=/opt/venv/bin/python
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PIP_NO_CACHE_DIR=1
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,13 +20,13 @@ env UV_PRERELEASE=allow
 # mitigates AttributeError: module 'cv2.dnn' has no attribute 'DictValue' \
 # see https://github.com/facebookresearch/nougat/issues/40
 RUN apt-get update && \
-    apt-get install --no-install-recommends -y ffmpeg libsm6 libxext6 libsndfile1 && \
+    apt-get install --no-install-recommends -y ffmpeg libsm6 libxext6 libsndfile1 libxcb1 && \
     pip install uv && uv --version && \
     apt-get purge -y && \
     rm -rf /var/lib/apt/lists/*
 
-# torchaudio
-RUN uv pip install --no-deps https://repo.radeon.com/rocm/manylinux/rocm-rel-7.0/torchaudio-2.7.1%2Brocm7.0.0.git95c61b41-cp312-cp312-linux_x86_64.whl
+# upgrade transformers to fix compatibility issues
+RUN uv pip install --no-deps -U transformers
 
 # sources for building this dockerfile
 # use these lines to build from the local fs

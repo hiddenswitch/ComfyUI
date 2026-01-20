@@ -101,3 +101,57 @@ After merging new migrations:
 git mv alembic_db/versions/* comfy/alembic_db/versions/
 rmdir alembic_db/versions alembic_db
 ```
+
+## Adding New Models
+
+When upstream adds new workflow files that reference new models, add those models to `comfy/model_downloader.py`.
+
+### Step 1: Identify Models in Workflows
+
+Check `git status` for new workflow files in `tests/inference/workflows/`. Read the workflow JSON files to find model references:
+
+- `UNETLoader` → `unet_name` field → add to `KNOWN_UNET_MODELS`
+- `CLIPLoader` → `clip_name` field → add to `KNOWN_CLIP_MODELS`
+- `VAELoader` → `vae_name` field → add to `KNOWN_VAES`
+- `CheckpointLoader` → `ckpt_name` field → add to `KNOWN_CHECKPOINTS`
+
+### Step 2: Find HuggingFace Repository
+
+Search for the model filename on HuggingFace to find the correct repository and path. For example:
+- `flux-2-klein-base-4b.safetensors` → `black-forest-labs/FLUX.2-klein-base-4B`
+
+### Step 3: Add to Model Downloader
+
+Add a `HuggingFile` entry to the appropriate list in `comfy/model_downloader.py`:
+
+```python
+HuggingFile("repo-owner/repo-name", "path/to/model.safetensors"),
+```
+
+Group related models together with comments (e.g., `# Flux 2`).
+
+### Step 4: Run Inference Tests
+
+Run the inference tests for the new workflows to verify the models work correctly.
+
+First, list available tests to find the workflow names:
+```bash
+pytest tests/inference --collect-only 2>&1 | grep -i "workflow-name"
+```
+
+Then run tests for specific workflows using `-k` to filter by workflow filename. Use `and` to combine multiple filters:
+```bash
+pytest -v tests/inference -k "workflow-name and normalvram"
+```
+
+Example for flux2-klein workflows:
+```bash
+pytest -v tests/inference -k "flux2-klein-0 and normalvram"
+```
+
+The `-k` flag matches test names containing the specified substrings. Common filters:
+- Workflow name: `flux2-klein-0` matches `flux2-klein-0.json`
+- VRAM mode: `normalvram` or `novram`
+- Attention: `use_pytorch` or `sage_attention`
+
+Avoid running all test variations by being specific with filters.

@@ -1,7 +1,7 @@
-import torch
 import logging
+import torch
 
-from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4
+from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4_by_block
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ class TensorCoreNVFP4Layout(_CKNvfp4Layout):
         needs_padding = padded_shape != orig_shape
 
         if stochastic_rounding > 0:
-            qdata, block_scale = stochastic_round_quantize_nvfp4(tensor, scale, pad_16x=needs_padding, seed=stochastic_rounding)
+            qdata, block_scale = stochastic_round_quantize_nvfp4_by_block(tensor, scale, pad_16x=needs_padding, seed=stochastic_rounding)
         else:
             qdata, block_scale = ck.quantize_nvfp4(tensor, scale, pad_16x=needs_padding)
 

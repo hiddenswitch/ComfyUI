@@ -15,8 +15,21 @@ import transformers
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin, AutoProcessor, AutoTokenizer, \
     BatchFeature, AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoModel, \
     PretrainedConfig, TextStreamer, LogitsProcessor
-from transformers.models.auto.modeling_auto import MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES, \
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES, MODEL_FOR_CAUSAL_LM_MAPPING_NAMES, AutoModelForImageTextToText
+from transformers.models.auto.modeling_auto import MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES, \
+    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
+
+# Handle transformers 4.x vs 5.x API differences
+try:
+    from transformers.models.auto.modeling_auto import MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES
+except ImportError:
+    # transformers 5.x removed MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES
+    MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES = {}
+
+try:
+    from transformers.models.auto.modeling_auto import AutoModelForImageTextToText
+except ImportError:
+    # Fallback for older transformers versions
+    AutoModelForImageTextToText = None
 
 from .chat_templates import KNOWN_CHAT_TEMPLATES
 from .language_types import ProcessorResult, TOKENS_TYPE, GENERATION_KWARGS_TYPE, TransformerStreamedProgress, \
@@ -202,7 +215,7 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
                 pass
             for i, kwargs_to_try in enumerate(kwargses_to_try):
                 try:
-                    if model_type in MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES:
+                    if AutoModelForImageTextToText is not None and model_type in MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES:
                         model = AutoModelForImageTextToText.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
                     elif model_type in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
                         model = AutoModelForSeq2SeqLM.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)

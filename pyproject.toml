@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.9.1"
+version = "0.9.2"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -124,6 +124,7 @@ dependencies = [
     # we want this upgraded
     "propcache>=0.4.1",
     "blake3",
+    "requests",
 ]
 
 [build-system]
@@ -147,7 +148,6 @@ dev = [
     "pylint",
     "astroid",
     "nvidia-ml-py",
-    "requests",
 ]
 
 comfyui-manager = [

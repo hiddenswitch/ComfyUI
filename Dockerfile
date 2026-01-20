@@ -24,7 +24,7 @@ RUN echo "onnxruntime-gpu==1.22.0" >> /workspace/overrides.txt; pip freeze | gre
 # mitigates AttributeError: module 'cv2.dnn' has no attribute 'DictValue' \
 # see https://github.com/facebookresearch/nougat/issues/40
 RUN pip install uv && uv --version && \
-    apt-get update && apt-get install --no-install-recommends ffmpeg libsm6 libxext6 libcairo2-dev -y && \
+    apt-get update && apt-get install --no-install-recommends ffmpeg libsm6 libxext6 libcairo2-dev libxcb1 -y && \
     uv pip uninstall --system $(pip list --format=freeze | grep opencv) && \
     rm -rf /usr/local/lib/python3.12/dist-packages/cv2/ && \
     uv pip install wheel && \

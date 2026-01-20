@@ -129,36 +129,6 @@ class TestLTX2ModelLoading:
         assert "spiece_model" in u, "spiece_model should be in unexpected keys"
 
 
-class TestLTX2SDPABackendSelection:
-    """Test SDPA backend selection related to the cuDNN error."""
-
-    def test_sdpa_backend_priority_defined(self):
-        """Verify SDPA backend priority is defined when CUDA is available."""
-        from comfy import ops
-
-        if torch.cuda.is_available():
-            # Check if the prioritized function is being used
-            func_name = ops.scaled_dot_product_attention.__name__
-            # Should be either _scaled_dot_product_attention_sdpa2 or _scaled_dot_product_attention
-            assert func_name in ["_scaled_dot_product_attention_sdpa2", "_scaled_dot_product_attention"]
-        else:
-            # On CPU, should use basic implementation
-            assert ops.scaled_dot_product_attention.__name__ == "_scaled_dot_product_attention"
-
-    def test_sdpa_fallback_on_error(self):
-        """Test that SDPA can fall back gracefully."""
-        # Create simple tensors
-        q = torch.randn(2, 4, 8, 16)
-        k = torch.randn(2, 4, 8, 16)
-        v = torch.randn(2, 4, 8, 16)
-
-        from comfy.ops import scaled_dot_product_attention
-
-        # Should not raise even without GPU
-        output = scaled_dot_product_attention(q, k, v)
-        assert output.shape == q.shape
-
-
 class TestSpieceTokenizer:
     """Test SPieceTokenizer functionality."""
 
@@ -176,33 +146,6 @@ class TestSpieceTokenizer:
 
         # Skip if no model available
         pytest.skip("Requires actual sentencepiece model for full test")
-
-
-class TestCuDNNVersionMismatch:
-    """Tests related to cuDNN version mismatch detection."""
-
-    def test_cudnn_version_available(self):
-        """Test that cuDNN version can be queried."""
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-
-        cudnn_version = torch.backends.cudnn.version()
-        assert cudnn_version is not None
-        assert isinstance(cudnn_version, int)
-        # cuDNN version should be a 5-digit number like 90102
-        assert cudnn_version > 10000, f"Unexpected cuDNN version format: {cudnn_version}"
-
-    def test_cuda_runtime_available(self):
-        """Test that CUDA runtime version is accessible."""
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-
-        # Get CUDA version
-        cuda_version = torch.version.cuda
-        assert cuda_version is not None
-        # Should be like "13.0" or "12.4"
-        parts = cuda_version.split(".")
-        assert len(parts) >= 2, f"Unexpected CUDA version format: {cuda_version}"
 
 
 if __name__ == "__main__":

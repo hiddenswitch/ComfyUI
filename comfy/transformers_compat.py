@@ -52,5 +52,6 @@ __all__ = [
     "GPT2TokenizerFast",
     "BertTokenizerFast",
     "Qwen2Tokenizer",
+    "Qwen2TokenizerFast",
     "ByT5Tokenizer",
 ]
