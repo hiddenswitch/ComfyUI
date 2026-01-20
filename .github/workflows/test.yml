@@ -35,6 +35,9 @@ jobs:
             container: "nvcr.io/nvidia/pytorch:23.12-py3"
     steps:
       - run: |
+          apt-get update && apt-get install -y --no-install-recommends libxcb1
+        name: Install system dependencies
+      - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
       - uses: actions/checkout@v4
@@ -68,7 +71,7 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          pytest -v tests/unit
+          pytest -v --tb=long --capture=no tests/unit
 #      - name: Run inference tests
 #        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
 #        run: |
@@ -101,7 +104,7 @@ jobs:
         with:
           path: src
       - run: |
-          apt install libsndfile1 -y --no-install-recommends
+          apt install libsndfile1 libxcb1 -y --no-install-recommends
         name: sndfile Dependency
       - name: Write Overrides
         run: |
@@ -125,7 +128,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=short tests/unit --ignore=tests/unit/test_panics.py
+          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
@@ -152,7 +155,7 @@ jobs:
         with:
           path: src
       - run: |
-          apt-get update && apt-get install -y libsndfile1 --no-install-recommends
+          apt-get update && apt-get install -y libsndfile1 libxcb1 --no-install-recommends
         name: sndfile Dependency
       - name: Write Overrides
         run: |
@@ -176,7 +179,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=short tests/unit --ignore=tests/unit/test_panics.py
+          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
