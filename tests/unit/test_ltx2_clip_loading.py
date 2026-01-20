@@ -197,6 +197,10 @@ class TestCuDNNVersionMismatch:
         if not torch.cuda.is_available():
             pytest.skip("CUDA not available")
 
+        # Skip on ROCm - torch.cuda.is_available() returns True but torch.version.cuda is None
+        if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+            pytest.skip("ROCm detected - CUDA runtime version not applicable")
+
         # Get CUDA version
         cuda_version = torch.version.cuda
         assert cuda_version is not None
