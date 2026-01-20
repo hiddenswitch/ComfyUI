@@ -171,3 +171,38 @@ def test_cudnn_nvrtc_compatibility_check():
     # Should return a boolean
     result = comfy.ops._check_cudnn_nvrtc_compatibility()
     assert isinstance(result, bool)
+
+
+class TestCuDNNVersionMismatch:
+    """Tests related to cuDNN version mismatch detection."""
+
+    def test_cudnn_version_available(self):
+        """Test that cuDNN version can be queried."""
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+
+        # Skip on ROCm - cuDNN is NVIDIA-specific
+        if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+            pytest.skip("ROCm detected - cuDNN not applicable")
+
+        cudnn_version = torch.backends.cudnn.version()
+        assert cudnn_version is not None
+        assert isinstance(cudnn_version, int)
+        # cuDNN version should be a 5-digit number like 90102
+        assert cudnn_version > 10000, f"Unexpected cuDNN version format: {cudnn_version}"
+
+    def test_cuda_runtime_available(self):
+        """Test that CUDA runtime version is accessible."""
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+
+        # Skip on ROCm - torch.cuda.is_available() returns True but torch.version.cuda is None
+        if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+            pytest.skip("ROCm detected - CUDA runtime version not applicable")
+
+        # Get CUDA version
+        cuda_version = torch.version.cuda
+        assert cuda_version is not None
+        # Should be like "13.0" or "12.4"
+        parts = cuda_version.split(".")
+        assert len(parts) >= 2, f"Unexpected CUDA version format: {cuda_version}"
