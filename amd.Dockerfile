@@ -20,7 +20,7 @@ env UV_PRERELEASE=allow
 # mitigates AttributeError: module 'cv2.dnn' has no attribute 'DictValue' \
 # see https://github.com/facebookresearch/nougat/issues/40
 RUN apt-get update && \
-    apt-get install --no-install-recommends -y ffmpeg libsm6 libxext6 libsndfile1 && \
+    apt-get install --no-install-recommends -y ffmpeg libsm6 libxext6 libsndfile1 libxcb1 && \
     pip install uv && uv --version && \
     apt-get purge -y && \
     rm -rf /var/lib/apt/lists/*
