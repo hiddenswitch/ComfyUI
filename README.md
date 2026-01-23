@@ -113,8 +113,13 @@ Full documentation is available in [docs/index.md](docs/index.md).
 ### Extending ComfyUI
 - [Custom Nodes](docs/custom_nodes.md) (Installing & Authoring)
 - [Embedded / Library Usage](docs/embedded.md) (Python, GraphBuilder, Streaming)
+- [Testing Workflows](docs/testing.md) (pytest, Image Snapshots)
 - [API Usage](docs/api.md) (REST, WebSocket)
 
 ### Deployment
 - [Distributed / Multi-GPU](docs/distributed.md)
 - [Docker & Containers](docs/docker.md)
+
+### Development
+- [Linting](docs/linting.md)
+- [Merging Upstream](docs/merging.md)

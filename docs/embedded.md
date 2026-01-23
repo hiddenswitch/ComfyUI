@@ -2,6 +2,8 @@
 
 ComfyUI can be used as an embedded library inside your own Python application. No server process is started — it runs the workflow engine directly in your process.
 
+See the [README](../README.md) for installation and getting started.
+
 ## Installing
 
 ```shell
@@ -66,17 +68,13 @@ async def run_example():
     prompt["4"]["inputs"]["text"] = "masterpiece best quality man"
     prompt["5"]["inputs"]["seed"] = 5
 
-    # Runs ComfyUI as a library. No server, no API call.
     async with Comfy() as client:
         outputs = await client.queue_prompt(prompt)
 
-        # Find the SaveImage node and get the output path
         save_image_node_id = next(
             key for key in prompt if prompt[key]["class_type"] == "SaveImage"
         )
         return outputs[save_image_node_id]["images"][0]["abs_path"]
-
-    # All models are unloaded and VRAM is released when the block exits.
 ```
 
 Run it with:
@@ -155,7 +153,7 @@ def build_graph(positive_prompt_text="masterpiece best quality girl"):
 
 
 builder = build_graph()
-prompt = builder.finalize()  # Returns the same dict format as the JSON workflow
+prompt = builder.finalize()
 ```
 
 The `finalize()` output is identical to the API format JSON — pass it to `client.queue_prompt(prompt)`.
@@ -183,7 +181,6 @@ async def run_with_previews():
                 # image_data.pil_image is a PIL Image of the current denoising step
                 print(f"Preview: {image_data.pil_image.size}")
 
-        # Get the final outputs after all progress events
         result = await task.get()
         save_image_node_id = next(
             key for key, value in prompt.items() if value.get("class_type") == "SaveImage"
@@ -235,7 +232,6 @@ config.fp32_vae = True
 # Disable custom nodes for faster startup and isolation
 config.disable_all_custom_nodes = True
 
-# Multiple options can be set at once with .update()
 config.update({
     "use_sage_attention": True,
     "novram": True,
@@ -252,27 +248,6 @@ Available `PerformanceFeature` values for `config.fast`:
 - `PerformanceFeature.Fp16Accumulation` — Use FP16 accumulation. May reduce quality.
 - `PerformanceFeature.Fp8MatrixMultiplication` — Use FP8 matrix multiplication.
 - `PerformanceFeature.AutoTune` — Enable PyTorch autotuning.
-
-### Using ProcessPoolExecutor for Isolation
-
-When running workflows in production or automated testing, use `ProcessPoolExecutor` to run each workflow in a subprocess. This ensures VRAM is fully released between runs and configuration options like `novram` are applied correctly:
-
-```python
-from comfy.client.embedded_comfy_client import Comfy
-from comfy.cli_args import default_configuration
-from comfy.cli_args_types import PerformanceFeature
-from comfy.distributed.process_pool_executor import ProcessPoolExecutor
-
-config = default_configuration()
-config.disable_all_custom_nodes = True
-config.novram = True
-config.use_sage_attention = True
-config.fast = {PerformanceFeature.CublasOps}
-
-with ProcessPoolExecutor(max_workers=1) as executor:
-    async with Comfy(configuration=config, executor=executor) as client:
-        outputs = await client.queue_prompt(prompt)
-```
 
 ## Running Multiple Workflows
 
@@ -334,73 +309,6 @@ Combine with other flags for performance tuning:
 uv run --no-sync comfyui --novram --use-sage-attention --fast cublas_ops --workflows my_workflow.json
 ```
 
-## Structuring Automated Test Directories
-
-ComfyUI's test suite uses `importlib.resources` to discover workflow JSON files from a Python package. Structure your test directory like this:
-
-```
-tests/
-└── inference/
-    ├── __init__.py
-    ├── test_workflows.py
-    └── workflows/
-        ├── __init__.py          # Makes this a Python package
-        ├── sd15-basic-0.json
-        ├── flux-0.json
-        └── my-custom-workflow-0.json
-```
-
-The `__init__.py` inside `workflows/` is required so that `importlib.resources` can discover the JSON files. Each JSON file is an API-format workflow exported from the ComfyUI web UI (Save → API Format).
-
-A minimal test file:
-
-```python
-import importlib.resources
-import json
-import pytest
-from comfy.client.embedded_comfy_client import Comfy
-from comfy.api.components.schema.prompt import Prompt
-from comfy.cli_args import default_configuration
-from comfy.cli_args_types import PerformanceFeature
-from comfy.distributed.process_pool_executor import ProcessPoolExecutor
-from comfy.model_downloader import add_known_models
-from comfy.model_downloader_types import HuggingFile
-from . import workflows  # the workflows/ package
-
-
-def _discover_workflows():
-    """Register any models needed by test workflows, then discover JSON files."""
-    add_known_models("loras", HuggingFile(
-        "artificialguybr/pixelartredmond-1-5v-pixel-art-loras-for-sd-1-5",
-        "PixelArtRedmond15V-PixelArt-PIXARFK.safetensors"
-    ))
-    return {
-        f.name: f
-        for f in importlib.resources.files(workflows).iterdir()
-        if f.is_file() and f.name.endswith(".json")
-    }
-
-
-@pytest.fixture(scope="function")
-async def client():
-    config = default_configuration()
-    config.disable_all_custom_nodes = True
-    config.novram = True
-    config.fast = {PerformanceFeature.CublasOps}
-    with ProcessPoolExecutor(max_workers=1) as executor:
-        async with Comfy(configuration=config, executor=executor) as c:
-            yield c
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("name, workflow_file", _discover_workflows().items())
-async def test_workflow(name: str, workflow_file, client: Comfy):
-    workflow = json.loads(workflow_file.read_text(encoding="utf8"))
-    prompt = Prompt.validate(workflow)
-    outputs = await client.queue_prompt(prompt)
-    assert len(outputs) > 0
-```
-
 ## Adding Known Models for Automatic Download
 
 Use `add_known_models()` to register models that should be downloaded automatically from Hugging Face when a workflow references them. This makes models appear in the UI dropdown and triggers on-demand downloads.
@@ -409,33 +317,30 @@ Use `add_known_models()` to register models that should be downloaded automatica
 from comfy.model_downloader import add_known_models
 from comfy.model_downloader_types import HuggingFile, CivitFile
 
-# Register a model from Hugging Face
 add_known_models("checkpoints", HuggingFile(
     "stabilityai/stable-diffusion-xl-base-1.0",
     "sd_xl_base_1.0.safetensors"
 ))
 
-# Register a LoRA
 add_known_models("loras", HuggingFile(
     "ByteDance/Hyper-SD",
     "Hyper-SDXL-12steps-CFG-lora.safetensors"
 ))
 
-# Register a model from CivitAI (by model ID and version ID)
+# CivitAI uses model_id and model_version_id
 add_known_models("checkpoints", CivitFile(
     model_id=133005,
     model_version_id=357609,
     filename="juggernautXL_v9Rundiffusionphoto2.safetensors"
 ))
 
-# Register with a custom save filename (when the repo filename is generic)
+# save_with_filename renames generic filenames on disk
 add_known_models("controlnet", HuggingFile(
     "jschoormans/controlnet-densepose-sdxl",
     "diffusion_pytorch_model.safetensors",
     save_with_filename="controlnet-densepose-sdxl.safetensors"
 ))
 
-# Register multiple models at once
 add_known_models("diffusion_models",
     HuggingFile("black-forest-labs/FLUX.1-schnell", "flux1-schnell.safetensors"),
     HuggingFile("black-forest-labs/FLUX.1-dev", "flux1-dev.safetensors"),
@@ -460,10 +365,8 @@ To authenticate:
 2. Set your token using one of:
 
 ```bash
-# Option 1: Environment variable
 export HF_TOKEN=hf_your_token_here
-
-# Option 2: Login via CLI (stores token persistently)
+# or
 huggingface-cli login
 ```
 
@@ -505,3 +408,7 @@ uv run --no-sync comfyui --novram
 ```
 
 Without `--novram`, ComfyUI uses smart memory management to keep recently-used models in VRAM for faster subsequent runs. This is better for interactive use but can cause OOM errors with large models on limited hardware.
+
+## Automated Testing
+
+See [Testing Workflows](testing.md) for pytest integration, image output verification, and snapshot testing.

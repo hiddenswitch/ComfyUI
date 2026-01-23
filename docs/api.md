@@ -10,17 +10,9 @@ Start ComfyUI by creating an ordinary Python object. This does not create a web 
 from comfy.client.embedded_comfy_client import Comfy
 
 async with Comfy() as client:
-    # This will run your prompt
-    # To get the prompt JSON, visit the ComfyUI interface, design your workflow and click **Save (API Format)**. This JSON is what you will use as your workflow.
     outputs = await client.queue_prompt(prompt)
-    # At this point, your prompt is finished and all the outputs, like saving images, have been completed.
-    # Now the outputs will contain the same thing that the Web UI expresses: a file path for each output.
-    # Let's find the node ID of the first SaveImage node. This will work when you change your workflow JSON from
-    # the example above.
     save_image_node_id = next(key for key in prompt if prompt[key].class_type == "SaveImage")
-    # Now let's print the absolute path to the image.
     print(outputs[save_image_node_id]["images"][0]["abs_path"])
-# At this point, all the models have been unloaded from VRAM, and everything has been cleaned up.
 ```
 
 See [script_examples/basic_api_example.py](examples/script_examples/basic_api_example.py) for a complete example.
@@ -62,10 +54,8 @@ Then the following idiomatic pattern is available:
 from comfy.client.aio_client import AsyncRemoteComfyClient
 
 client = AsyncRemoteComfyClient(server_address="http://localhost:8188")
-# Now let's get the bytes of the PNG image saved by the SaveImage node:
 png_image_bytes = await client.queue_prompt(prompt)
-# You can save these bytes wherever you need!
-with open("image.png", "rb") as f:
+with open("image.png", "wb") as f:
     f.write(png_image_bytes)
 ```
 
@@ -145,7 +135,6 @@ async function generateImage() {
     const blob = await response.blob();
     const imageUrl = URL.createObjectURL(blob);
     const img = document.createElement('img');
-    // load image into the DOM
     img.src = imageUrl;
     document.body.appendChild(img);
 }
