@@ -11,24 +11,18 @@ import base64
 from comfy_api.latest import IO, ComfyExtension, Input
 from typing_extensions import override
 
-from comfy_api_nodes.apis import (
-    CreateModelResponseProperties,
-    Detail,
-    InputContent,
+from comfy_api_nodes.apis.openai import (
     InputFileContent,
     InputImageContent,
     InputMessage,
-    InputMessageContentList,
     InputTextContent,
-    Item,
+    ModelResponseProperties,
     OpenAICreateResponse,
-    OpenAIResponse,
-    OutputContent,
-)
-from comfy_api_nodes.apis.openai_api import (
     OpenAIImageEditRequest,
     OpenAIImageGenerationRequest,
     OpenAIImageGenerationResponse,
+    OpenAIResponse,
+    OutputContent,
 )
 from comfy_api_nodes.util import (
     ApiEndpoint,
@@ -267,7 +261,7 @@ class OpenAIDalle3(IO.ComfyNode):
                     "seed",
                     default=0,
                     min=0,
-                    max=2 ** 31 - 1,
+                    max=2**31 - 1,
                     step=1,
                     display_mode=IO.NumberDisplay.number,
                     control_after_generate=True,
@@ -371,9 +365,9 @@ class OpenAIGPTImage1(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="OpenAIGPTImage1",
-            display_name="OpenAI GPT Image 1",
+            display_name="OpenAI GPT Image 1.5",
             category="api node/image/OpenAI",
-            description="Generates images synchronously via OpenAI's GPT Image 1 endpoint.",
+            description="Generates images synchronously via OpenAI's GPT Image endpoint.",
             inputs=[
                 IO.String.Input(
                     "prompt",
@@ -385,7 +379,7 @@ class OpenAIGPTImage1(IO.ComfyNode):
                     "seed",
                     default=0,
                     min=0,
-                    max=2 ** 31 - 1,
+                    max=2**31 - 1,
                     step=1,
                     display_mode=IO.NumberDisplay.number,
                     control_after_generate=True,
@@ -436,6 +430,7 @@ class OpenAIGPTImage1(IO.ComfyNode):
                 IO.Combo.Input(
                     "model",
                     options=["gpt-image-1", "gpt-image-1.5"],
+                    default="gpt-image-1.5",
                     optional=True,
                 ),
             ],
@@ -501,8 +496,8 @@ class OpenAIGPTImage1(IO.ComfyNode):
             files = []
             batch_size = image.shape[0]
             for i in range(batch_size):
-                single_image = image[i: i + 1]
-                scaled_image = downscale_image_tensor(single_image, total_pixels=2048*2048).squeeze()
+                single_image = image[i : i + 1]
+                scaled_image = downscale_image_tensor(single_image, total_pixels=2048 * 2048).squeeze()
 
                 image_np = (scaled_image.numpy() * 255).astype(np.uint8)
                 img = Image.fromarray(image_np)
@@ -524,7 +519,7 @@ class OpenAIGPTImage1(IO.ComfyNode):
                 rgba_mask = torch.zeros(height, width, 4, device="cpu")
                 rgba_mask[:, :, 3] = 1 - mask.squeeze().cpu()
 
-                scaled_mask = downscale_image_tensor(rgba_mask.unsqueeze(0), total_pixels=2048*2048).squeeze()
+                scaled_mask = downscale_image_tensor(rgba_mask.unsqueeze(0), total_pixels=2048 * 2048).squeeze()
 
                 mask_np = (scaled_mask.numpy() * 255).astype(np.uint8)
                 mask_img = Image.fromarray(mask_np)
@@ -702,8 +697,8 @@ class OpenAIChatNode(IO.ComfyNode):
     ) -> list[OutputContent]:
         """Extract message content from the API response."""
         for output in response.output:
-            if output.root.type == "message":
-                return output.root.content
+            if output.type == "message":
+                return output.content
         raise TypeError("No output message found in response")
 
     @classmethod
@@ -712,14 +707,13 @@ class OpenAIChatNode(IO.ComfyNode):
     ) -> str:
         """Extract text content from message content."""
         for content_item in message_content:
-            if content_item.root.type == "output_text":
-                return str(content_item.root.text)
+            if content_item.type == "output_text":
+                return str(content_item.text)
         return "No text output found in response"
 
     @classmethod
     def tensor_to_input_image_content(
-            cls, image: torch.Tensor, detail_level: Detail = "auto"
-    ) -> InputImageContent:
+            cls, image: torch.Tensor, detail_level: str = "auto") -> InputImageContent:
         """Convert a tensor to an input image content object."""
         return InputImageContent(
             detail=detail_level,
@@ -733,9 +727,9 @@ class OpenAIChatNode(IO.ComfyNode):
             prompt: str,
             image: torch.Tensor | None = None,
             files: list[InputFileContent] | None = None,
-    ) -> InputMessageContentList:
+    ) -> list[InputTextContent | InputImageContent | InputFileContent]:
         """Create a list of input message contents from prompt and optional image."""
-        content_list: list[InputContent | InputTextContent | InputImageContent | InputFileContent] = [
+        content_list: list[InputTextContent | InputImageContent | InputFileContent] = [
             InputTextContent(text=prompt, type="input_text"),
         ]
         if image is not None:
@@ -747,13 +741,9 @@ class OpenAIChatNode(IO.ComfyNode):
                         type="input_image",
                     )
                 )
-
         if files is not None:
             content_list.extend(files)
-
-        return InputMessageContentList(
-            root=content_list,
-        )
+        return content_list
 
     @classmethod
     async def execute(
@@ -763,7 +753,7 @@ class OpenAIChatNode(IO.ComfyNode):
             model: SupportedOpenAIModel = SupportedOpenAIModel.gpt_5.value,
             images: torch.Tensor | None = None,
             files: list[InputFileContent] | None = None,
-            advanced_options: CreateModelResponseProperties | None = None,
+            advanced_options: ModelResponseProperties | None = None,
     ) -> IO.NodeOutput:
         validate_string(prompt, strip_whitespace=False)
 
@@ -774,24 +764,16 @@ class OpenAIChatNode(IO.ComfyNode):
             response_model=OpenAIResponse,
             data=OpenAICreateResponse(
                 input=[
-                    Item(
-                        root=InputMessage(
-                            content=cls.create_input_message_contents(
-                                prompt, images, files
-                            ),
-                            role="user",
-                        )
+                    InputMessage(
+                        content=cls.create_input_message_contents(prompt, images, files),
+                        role="user",
                     ),
                 ],
                 store=True,
                 stream=False,
                 model=model,
                 previous_response_id=None,
-                **(
-                    advanced_options.model_dump(exclude_none=True)
-                    if advanced_options
-                    else {}
-                ),
+                **(advanced_options.model_dump(exclude_none=True) if advanced_options else {}),
             ),
         )
         response_id = create_response.id
@@ -802,7 +784,7 @@ class OpenAIChatNode(IO.ComfyNode):
             ApiEndpoint(path=f"{RESPONSES_ENDPOINT}/{response_id}"),
             response_model=OpenAIResponse,
             status_extractor=lambda response: response.status,
-            completed_statuses=["incomplete", "completed"]
+            completed_statuses=["incomplete", "completed"],
         )
         return IO.NodeOutput(cls.get_text_from_message_content(cls.get_message_content_from_response(result_response)))
 
@@ -924,7 +906,7 @@ class OpenAIChatConfig(IO.ComfyNode):
             remove depending on model choice.
         """
         return IO.NodeOutput(
-            CreateModelResponseProperties(
+            ModelResponseProperties(
                 instructions=instructions,
                 truncation=truncation,
                 max_output_tokens=max_output_tokens,

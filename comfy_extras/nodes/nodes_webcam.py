@@ -4,6 +4,7 @@ from comfy.nodes.common import MAX_RESOLUTION
 
 
 class WebcamCapture(LoadImage):
+    SEARCH_ALIASES = ["camera input", "live capture", "camera feed", "snapshot"]
     @classmethod
     def INPUT_TYPES(s):
         return {

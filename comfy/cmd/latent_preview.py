@@ -23,7 +23,7 @@ default_preview_method = args.preview_method
 
 # needs to come from context, which it sort of does here
 MAX_PREVIEW_RESOLUTION = args.preview_size
-VIDEO_TAES = ["taehv", "lighttaew2_2", "lighttaew2_1", "lighttaehy1_5"]
+VIDEO_TAES = ["taehv", "lighttaew2_2", "lighttaew2_1", "lighttaehy1_5", "taeltx_2"]
 
 logger = logging.getLogger(__name__)
 

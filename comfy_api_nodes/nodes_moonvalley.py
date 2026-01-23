@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 from typing_extensions import override
 
 from comfy_api.latest import IO, ComfyExtension, Input
-from comfy_api_nodes.apis import (
+from comfy_api_nodes.apis.moonvalley import (
     MoonvalleyPromptResponse,
     MoonvalleyTextToVideoInferenceParams,
     MoonvalleyTextToVideoRequest,

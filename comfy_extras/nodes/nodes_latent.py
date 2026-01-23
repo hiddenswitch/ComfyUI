@@ -25,6 +25,7 @@ class LatentAdd(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentAdd",
+            search_aliases=["combine latents", "sum latents"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples1"),
@@ -52,6 +53,7 @@ class LatentSubtract(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentSubtract",
+            search_aliases=["difference latent", "remove features"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples1"),
@@ -79,6 +81,7 @@ class LatentMultiply(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentMultiply",
+            search_aliases=["scale latent", "amplify latent", "latent gain"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples"),
@@ -103,6 +106,7 @@ class LatentInterpolate(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentInterpolate",
+            search_aliases=["blend latent", "mix latent", "lerp latent", "transition"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples1"),
@@ -142,6 +146,7 @@ class LatentConcat(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentConcat",
+            search_aliases=["join latents", "stitch latents"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples1"),
@@ -182,6 +187,7 @@ class LatentCut(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentCut",
+            search_aliases=["crop latent", "slice latent", "extract region"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples"),
@@ -222,6 +228,7 @@ class LatentCutToBatch(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentCutToBatch",
+            search_aliases=["slice to batch", "split latent", "tile latent"],
             category="latent/advanced",
             inputs=[
                 io.Latent.Input("samples"),
@@ -264,6 +271,7 @@ class LatentBatch(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentBatch",
+            search_aliases=["combine latents", "merge latents", "join latents"],
             category="latent/batch",
             is_deprecated=True,
             inputs=[
@@ -359,6 +367,7 @@ class LatentApplyOperation(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentApplyOperation",
+            search_aliases=["transform latent"],
             category="latent/advanced/operations",
             is_experimental=True,
             inputs=[
@@ -416,6 +425,7 @@ class LatentOperationTonemapReinhard(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LatentOperationTonemapReinhard",
+            search_aliases=["hdr latent"],
             category="latent/advanced/operations",
             is_experimental=True,
             inputs=[

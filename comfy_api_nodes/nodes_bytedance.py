@@ -7,7 +7,7 @@ import torch
 from typing_extensions import override
 
 from comfy_api.latest import IO, ComfyExtension, Input
-from comfy_api_nodes.apis.bytedance_api import (
+from comfy_api_nodes.apis.bytedance import (
     RECOMMENDED_PRESETS,
     RECOMMENDED_PRESETS_SEEDREAM_4,
     VIDEO_TASKS_EXECUTION_TIME,
@@ -479,7 +479,12 @@ class ByteDanceTextToVideoNode(IO.ComfyNode):
             inputs=[
                 IO.Combo.Input(
                     "model",
-                    options=["seedance-1-0-pro-250528", "seedance-1-0-lite-t2v-250428", "seedance-1-0-pro-fast-251015"],
+                    options=[
+                        "seedance-1-5-pro-251215",
+                        "seedance-1-0-pro-250528",
+                        "seedance-1-0-lite-t2v-250428",
+                        "seedance-1-0-pro-fast-251015",
+                    ],
                     default="seedance-1-0-pro-fast-251015",
                 ),
                 IO.String.Input(
@@ -530,6 +535,12 @@ class ByteDanceTextToVideoNode(IO.ComfyNode):
                     tooltip='Whether to add an "AI generated" watermark to the video.',
                     optional=True,
                 ),
+                IO.Boolean.Input(
+                    "generate_audio",
+                    default=False,
+                    tooltip="This parameter is ignored for any model except seedance-1-5-pro.",
+                    optional=True,
+                ),
             ],
             outputs=[
                 IO.Video.Output(),
@@ -554,7 +565,10 @@ class ByteDanceTextToVideoNode(IO.ComfyNode):
         seed: int,
         camera_fixed: bool,
         watermark: bool,
+        generate_audio: bool = False,
     ) -> IO.NodeOutput:
+        if model == "seedance-1-5-pro-251215" and duration < 4:
+            raise ValueError("Minimum supported duration for Seedance 1.5 Pro is 4 seconds.")
         validate_string(prompt, strip_whitespace=True, min_length=1)
         raise_if_text_params(prompt, ["resolution", "ratio", "duration", "seed", "camerafixed", "watermark"])
 
@@ -569,7 +583,11 @@ class ByteDanceTextToVideoNode(IO.ComfyNode):
         )
         return await process_video_task(
             cls,
-            payload=Text2VideoTaskCreationRequest(model=model, content=[TaskTextContent(text=prompt)]),
+            payload=Text2VideoTaskCreationRequest(
+                model=model,
+                content=[TaskTextContent(text=prompt)],
+                generate_audio=generate_audio if model == "seedance-1-5-pro-251215" else None,
+            ),
             estimated_duration=max(1, math.ceil(VIDEO_TASKS_EXECUTION_TIME[model][resolution] * (duration / 10.0))),
         )
 
@@ -586,7 +604,12 @@ class ByteDanceImageToVideoNode(IO.ComfyNode):
             inputs=[
                 IO.Combo.Input(
                     "model",
-                    options=["seedance-1-0-pro-250528", "seedance-1-0-lite-t2v-250428", "seedance-1-0-pro-fast-251015"],
+                    options=[
+                        "seedance-1-5-pro-251215",
+                        "seedance-1-0-pro-250528",
+                        "seedance-1-0-lite-i2v-250428",
+                        "seedance-1-0-pro-fast-251015",
+                    ],
                     default="seedance-1-0-pro-fast-251015",
                 ),
                 IO.String.Input(
@@ -641,6 +664,12 @@ class ByteDanceImageToVideoNode(IO.ComfyNode):
                     tooltip='Whether to add an "AI generated" watermark to the video.',
                     optional=True,
                 ),
+                IO.Boolean.Input(
+                    "generate_audio",
+                    default=False,
+                    tooltip="This parameter is ignored for any model except seedance-1-5-pro.",
+                    optional=True,
+                ),
             ],
             outputs=[
                 IO.Video.Output(),
@@ -666,7 +695,10 @@ class ByteDanceImageToVideoNode(IO.ComfyNode):
         seed: int,
         camera_fixed: bool,
         watermark: bool,
+        generate_audio: bool = False,
     ) -> IO.NodeOutput:
+        if model == "seedance-1-5-pro-251215" and duration < 4:
+            raise ValueError("Minimum supported duration for Seedance 1.5 Pro is 4 seconds.")
         validate_string(prompt, strip_whitespace=True, min_length=1)
         raise_if_text_params(prompt, ["resolution", "ratio", "duration", "seed", "camerafixed", "watermark"])
         validate_image_dimensions(image, min_width=300, min_height=300, max_width=6000, max_height=6000)
@@ -688,6 +720,7 @@ class ByteDanceImageToVideoNode(IO.ComfyNode):
             payload=Image2VideoTaskCreationRequest(
                 model=model,
                 content=[TaskTextContent(text=prompt), TaskImageContent(image_url=TaskImageContentUrl(url=image_url))],
+                generate_audio=generate_audio if model == "seedance-1-5-pro-251215" else None,
             ),
             estimated_duration=max(1, math.ceil(VIDEO_TASKS_EXECUTION_TIME[model][resolution] * (duration / 10.0))),
         )
@@ -705,7 +738,7 @@ class ByteDanceFirstLastFrameNode(IO.ComfyNode):
             inputs=[
                 IO.Combo.Input(
                     "model",
-                    options=["seedance-1-0-pro-250528", "seedance-1-0-lite-i2v-250428"],
+                    options=["seedance-1-5-pro-251215", "seedance-1-0-pro-250528", "seedance-1-0-lite-i2v-250428"],
                     default="seedance-1-0-lite-i2v-250428",
                 ),
                 IO.String.Input(
@@ -764,6 +797,12 @@ class ByteDanceFirstLastFrameNode(IO.ComfyNode):
                     tooltip='Whether to add an "AI generated" watermark to the video.',
                     optional=True,
                 ),
+                IO.Boolean.Input(
+                    "generate_audio",
+                    default=False,
+                    tooltip="This parameter is ignored for any model except seedance-1-5-pro.",
+                    optional=True,
+                ),
             ],
             outputs=[
                 IO.Video.Output(),
@@ -790,7 +829,10 @@ class ByteDanceFirstLastFrameNode(IO.ComfyNode):
         seed: int,
         camera_fixed: bool,
         watermark: bool,
+        generate_audio: bool = False,
     ) -> IO.NodeOutput:
+        if model == "seedance-1-5-pro-251215" and duration < 4:
+            raise ValueError("Minimum supported duration for Seedance 1.5 Pro is 4 seconds.")
         validate_string(prompt, strip_whitespace=True, min_length=1)
         raise_if_text_params(prompt, ["resolution", "ratio", "duration", "seed", "camerafixed", "watermark"])
         for i in (first_frame, last_frame):
@@ -823,6 +865,7 @@ class ByteDanceFirstLastFrameNode(IO.ComfyNode):
                     TaskImageContent(image_url=TaskImageContentUrl(url=str(download_urls[0])), role="first_frame"),
                     TaskImageContent(image_url=TaskImageContentUrl(url=str(download_urls[1])), role="last_frame"),
                 ],
+                generate_audio=generate_audio if model == "seedance-1-5-pro-251215" else None,
             ),
             estimated_duration=max(1, math.ceil(VIDEO_TASKS_EXECUTION_TIME[model][resolution] * (duration / 10.0))),
         )
@@ -898,7 +941,41 @@ class ByteDanceImageReferenceNode(IO.ComfyNode):
                 IO.Hidden.unique_id,
             ],
             is_api_node=True,
-            price_badge=PRICE_BADGE_VIDEO,
+            price_badge=IO.PriceBadge(
+                depends_on=IO.PriceBadgeDepends(widgets=["model", "duration", "resolution"]),
+                expr="""
+                (
+                  $priceByModel := {
+                    "seedance-1-0-pro": {
+                      "480p":[0.23,0.24],
+                      "720p":[0.51,0.56]
+                    },
+                    "seedance-1-0-lite": {
+                      "480p":[0.17,0.18],
+                      "720p":[0.37,0.41]
+                    }
+                  };
+                  $model := widgets.model;
+                  $modelKey :=
+                    $contains($model, "seedance-1-0-pro")  ? "seedance-1-0-pro" :
+                    "seedance-1-0-lite";
+                  $resolution := widgets.resolution;
+                  $resKey :=
+                    $contains($resolution, "720") ? "720p" :
+                    "480p";
+                  $modelPrices := $lookup($priceByModel, $modelKey);
+                  $baseRange := $lookup($modelPrices, $resKey);
+                  $min10s := $baseRange[0];
+                  $max10s := $baseRange[1];
+                  $scale := widgets.duration / 10;
+                  $minCost := $min10s * $scale;
+                  $maxCost := $max10s * $scale;
+                  ($minCost = $maxCost)
+                    ? {"type":"usd","usd": $minCost}
+                    : {"type":"range_usd","min_usd": $minCost, "max_usd": $maxCost}
+                )
+                """,
+            ),
         )
 
     @classmethod
@@ -969,10 +1046,15 @@ def raise_if_text_params(prompt: str, text_params: list[str]) -> None:
 
 
 PRICE_BADGE_VIDEO = IO.PriceBadge(
-    depends_on=IO.PriceBadgeDepends(widgets=["model", "duration", "resolution"]),
+    depends_on=IO.PriceBadgeDepends(widgets=["model", "duration", "resolution", "generate_audio"]),
     expr="""
     (
       $priceByModel := {
+        "seedance-1-5-pro": {
+          "480p":[0.12,0.12],
+          "720p":[0.26,0.26],
+          "1080p":[0.58,0.59]
+        },
         "seedance-1-0-pro": {
           "480p":[0.23,0.24],
           "720p":[0.51,0.56],
@@ -991,6 +1073,7 @@ PRICE_BADGE_VIDEO = IO.PriceBadge(
       };
       $model := widgets.model;
       $modelKey :=
+        $contains($model, "seedance-1-5-pro")      ? "seedance-1-5-pro" :
         $contains($model, "seedance-1-0-pro-fast") ? "seedance-1-0-pro-fast" :
         $contains($model, "seedance-1-0-pro")      ? "seedance-1-0-pro" :
         "seedance-1-0-lite";
@@ -1004,11 +1087,12 @@ PRICE_BADGE_VIDEO = IO.PriceBadge(
       $min10s := $baseRange[0];
       $max10s := $baseRange[1];
       $scale := widgets.duration / 10;
-      $minCost := $min10s * $scale;
-      $maxCost := $max10s * $scale;
+      $audioMultiplier := ($modelKey = "seedance-1-5-pro" and widgets.generate_audio) ? 2 : 1;
+      $minCost := $min10s * $scale * $audioMultiplier;
+      $maxCost := $max10s * $scale * $audioMultiplier;
       ($minCost = $maxCost)
-        ? {"type":"usd","usd": $minCost}
-        : {"type":"range_usd","min_usd": $minCost, "max_usd": $maxCost}
+        ? {"type":"usd","usd": $minCost, "format": { "approximate": true }}
+        : {"type":"range_usd","min_usd": $minCost, "max_usd": $maxCost, "format": { "approximate": true }}
     )
     """,
 )

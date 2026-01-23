@@ -74,6 +74,7 @@ class VAEEncodeAudio(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="VAEEncodeAudio",
+            search_aliases=["audio to latent"],
             display_name="VAE Encode Audio",
             category="latent/audio",
             inputs=[
@@ -106,6 +107,7 @@ class VAEDecodeAudio(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="VAEDecodeAudio",
+            search_aliases=["latent to audio"],
             display_name="VAE Decode Audio",
             category="latent/audio",
             inputs=[
@@ -131,6 +133,7 @@ class SaveAudio(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="SaveAudio",
+            search_aliases=["export flac"],
             display_name="Save Audio (FLAC)",
             category="audio",
             inputs=[
@@ -155,6 +158,7 @@ class SaveAudioMP3(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="SaveAudioMP3",
+            search_aliases=["export mp3"],
             display_name="Save Audio (MP3)",
             category="audio",
             inputs=[
@@ -182,6 +186,7 @@ class SaveAudioOpus(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="SaveAudioOpus",
+            search_aliases=["export opus"],
             display_name="Save Audio (Opus)",
             category="audio",
             inputs=[
@@ -209,6 +214,7 @@ class PreviewAudio(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="PreviewAudio",
+            search_aliases=["play audio"],
             display_name="Preview Audio",
             category="audio",
             inputs=[
@@ -270,6 +276,7 @@ class LoadAudio(IO.ComfyNode):
         files = folder_paths.filter_files_content_types(os.listdir(input_dir), ["audio", "video"])
         return IO.Schema(
             node_id="LoadAudio",
+            search_aliases=["import audio", "open audio", "audio file"],
             display_name="Load Audio",
             category="audio",
             inputs=[
@@ -307,6 +314,7 @@ class RecordAudio(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="RecordAudio",
+            search_aliases=["microphone input", "audio capture", "voice input"],
             display_name="Record Audio",
             category="audio",
             inputs=[
@@ -331,6 +339,7 @@ class TrimAudioDuration(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="TrimAudioDuration",
+            search_aliases=["cut audio", "audio clip", "shorten audio"],
             display_name="Trim Audio Duration",
             description="Trim audio tensor into chosen time range.",
             category="audio",
@@ -383,6 +392,7 @@ class SplitAudioChannels(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="SplitAudioChannels",
+            search_aliases=["stereo to mono"],
             display_name="Split Audio Channels",
             description="Separates the audio into left and right channels.",
             category="audio",
@@ -487,6 +497,7 @@ class AudioConcat(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="AudioConcat",
+            search_aliases=["join audio", "combine audio", "append audio"],
             display_name="Audio Concat",
             description="Concatenates the audio1 to audio2 in the specified direction.",
             category="audio",
@@ -536,6 +547,7 @@ class AudioMerge(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="AudioMerge",
+            search_aliases=["mix audio", "overlay audio", "layer audio"],
             display_name="Audio Merge",
             description="Combine two audio tracks by overlaying their waveforms.",
             category="audio",
@@ -598,6 +610,7 @@ class AudioAdjustVolume(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="AudioAdjustVolume",
+            search_aliases=["audio gain", "loudness", "audio level"],
             display_name="Audio Adjust Volume",
             category="audio",
             inputs=[
@@ -633,6 +646,7 @@ class EmptyAudio(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="EmptyAudio",
+            search_aliases=["blank audio"],
             display_name="Empty Audio",
             category="audio",
             inputs=[

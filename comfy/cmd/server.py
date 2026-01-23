@@ -758,12 +758,17 @@ class PromptServer(ExecutorToClientProgress):
 
             if hasattr(obj_class, 'API_NODE'):
                 info['api_node'] = obj_class.API_NODE
+
+            info['search_aliases'] = getattr(obj_class, 'SEARCH_ALIASES', [])
             return info
 
         @routes.get("/object_info")
         async def get_object_info(request):
             # todo: what does this doozy do...
-            seed_assets(["models"])
+            try:
+                seed_assets(["models"])
+            except Exception as e:
+                logger.debug(f"Failed to seed assets", exc_info=e)
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:

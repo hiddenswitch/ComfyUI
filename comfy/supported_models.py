@@ -30,6 +30,7 @@ from .text_encoders import qwen_image
 from .text_encoders import hunyuan_image
 from .text_encoders import kandinsky5
 from .text_encoders import z_image
+from .text_encoders import anima
 
 
 class SD15(supported_models_base.BASE):
@@ -820,7 +821,7 @@ class Flux2(Flux):
 
     def __init__(self, unet_config):
         super().__init__(unet_config)
-        self.memory_usage_factor = self.memory_usage_factor * (2.0 * 2.0) * 2.36
+        self.memory_usage_factor = self.memory_usage_factor * (2.0 * 2.0) * (unet_config['hidden_size'] / 2604)
 
     def get_model(self, state_dict, prefix="", device=None):
         out = model_base.Flux2(self, device=device)
@@ -829,11 +830,24 @@ class Flux2(Flux):
     def clip_target(self, state_dict=None):
         if state_dict is None:
             state_dict = {}
-        return None  # TODO
-        # pref = self.text_encoder_key_prefix[0]
-        # t5_detect = comfy.text_encoders.sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
-        # return supported_models_base.ClipTarget(comfy.text_encoders.flux.FluxTokenizer, comfy.text_encoders.flux.flux_clip(**t5_detect))
+        pref = self.text_encoder_key_prefix[0]
+        detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_4b.transformer.".format(pref))
+        if len(detect) > 0:
+            detect["model_type"] = "qwen3_4b"
+            return supported_models_base.ClipTarget(flux.KleinTokenizer,flux.klein_te(**detect))
 
+        detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_8b.transformer.".format(pref))
+        if len(detect) > 0:
+            detect["model_type"] = "qwen3_8b"
+            return supported_models_base.ClipTarget(flux.KleinTokenizer8B, flux.klein_te(**detect))
+
+        detect = hunyuan_video.llama_detect(state_dict, "{}mistral3_24b.transformer.".format(pref))
+        if len(detect) > 0:
+            if "{}mistral3_24b.transformer.model.layers.39.post_attention_layernorm.weight".format(pref) not in state_dict:
+                detect["pruned"] = True
+            return supported_models_base.ClipTarget(flux.Flux2Tokenizer, flux.flux2_te(**detect))
+
+        return None
 
 class GenmoMochi(supported_models_base.BASE):
     unet_config = {
@@ -1069,6 +1083,36 @@ class CosmosT2IPredict2(supported_models_base.BASE):
         t5_detect = sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
         return supported_models_base.ClipTarget(cosmos.CosmosT5Tokenizer, cosmos.te(**t5_detect))
 
+
+class Anima(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "anima",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.0,
+    }
+
+    unet_extra_config = {}
+    latent_format = latent_formats.Wan21
+
+    memory_usage_factor = 1.0
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        self.memory_usage_factor = (unet_config.get("model_channels", 2048) / 2048) * 0.95
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.Anima(self, device=device)
+        return out
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_06b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(anima.AnimaTokenizer, anima.te(**detect))
 
 class CosmosI2VPredict2(CosmosT2IPredict2):
     unet_config = {
@@ -1664,6 +1708,6 @@ class Kandinsky5Image(Kandinsky5):
         return supported_models_base.ClipTarget(kandinsky5.Kandinsky5TokenizerImage, kandinsky5.te(**hunyuan_detect))
 
 
-models = [LotusD, Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, PixArtAlpha, PixArtSigma, HunyuanDiT, HunyuanDiT1, FluxInpaint, Flux, FluxSchnell, GenmoMochi, LTXV, LTXAV, HunyuanVideo15_SR_Distilled, HunyuanVideo15, HunyuanImage21Refiner, HunyuanImage21, HunyuanVideoSkyreelsI2V, HunyuanVideoI2V, HunyuanVideo, CosmosT2V, CosmosI2V, CosmosT2IPredict2, CosmosI2VPredict2, ZImage, Lumina2, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate, Hunyuan3Dv2mini, Hunyuan3Dv2, Hunyuan3Dv2_1, HiDream, Chroma, ChromaRadiance, ACEStep, Omnigen2, QwenImage, Flux2, Kandinsky5Image, Kandinsky5]
+models = [LotusD, Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, PixArtAlpha, PixArtSigma, HunyuanDiT, HunyuanDiT1, FluxInpaint, Flux, FluxSchnell, GenmoMochi, LTXV, LTXAV, HunyuanVideo15_SR_Distilled, HunyuanVideo15, HunyuanImage21Refiner, HunyuanImage21, HunyuanVideoSkyreelsI2V, HunyuanVideoI2V, HunyuanVideo, CosmosT2V, CosmosI2V, CosmosT2IPredict2, CosmosI2VPredict2, ZImage, Lumina2, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate, Hunyuan3Dv2mini, Hunyuan3Dv2, Hunyuan3Dv2_1, HiDream, Chroma, ChromaRadiance, ACEStep, Omnigen2, QwenImage, Flux2, Kandinsky5Image, Kandinsky5, Anima]
 
 models += [SVD_img2vid]

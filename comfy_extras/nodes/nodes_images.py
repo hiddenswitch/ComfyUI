@@ -19,6 +19,7 @@ class ImageCrop(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="ImageCrop",
+            search_aliases=["trim"],
             display_name="Image Crop",
             category="image/transform",
             inputs=[
@@ -48,6 +49,7 @@ class RepeatImageBatch(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="RepeatImageBatch",
+            search_aliases=["duplicate image", "clone image"],
             category="image/batch",
             inputs=[
                 IO.Image.Input("image"),
@@ -69,6 +71,7 @@ class ImageFromBatch(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="ImageFromBatch",
+            search_aliases=["select image", "pick from batch", "extract image"],
             category="image/batch",
             inputs=[
                 IO.Image.Input("image"),
@@ -94,6 +97,7 @@ class ImageAddNoise(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="ImageAddNoise",
+            search_aliases=["film grain"],
             category="image",
             inputs=[
                 IO.Image.Input("image"),
@@ -192,11 +196,11 @@ class SaveAnimatedPNG(IO.ComfyNode):
 
 class ImageStitch(IO.ComfyNode):
     """Upstreamed from https://github.com/kijai/ComfyUI-KJNodes"""
-
     @classmethod
     def define_schema(cls):
         return IO.Schema(
             node_id="ImageStitch",
+            search_aliases=["combine images", "join images", "concatenate images", "side by side"],
             display_name="Image Stitch",
             description="Stitches image2 to image1 in the specified direction.\n"
                         "If image2 is not provided, returns image1 unchanged.\n"
@@ -367,11 +371,11 @@ class ImageStitch(IO.ComfyNode):
 
 
 class ResizeAndPadImage(IO.ComfyNode):
-
     @classmethod
     def define_schema(cls):
         return IO.Schema(
             node_id="ResizeAndPadImage",
+            search_aliases=["fit to size"],
             category="image/transform",
             inputs=[
                 IO.Image.Input("image"),
@@ -418,11 +422,11 @@ class ResizeAndPadImage(IO.ComfyNode):
 
 
 class SaveSVGNode(IO.ComfyNode):
-
     @classmethod
     def define_schema(cls):
         return IO.Schema(
             node_id="SaveSVGNode",
+            search_aliases=["export vector", "save vector graphics"],
             description="Save SVG files on disk.",
             category="image/save",
             inputs=[
@@ -470,11 +474,11 @@ class SaveSVGNode(IO.ComfyNode):
 
 
 class GetImageSize(IO.ComfyNode):
-
     @classmethod
     def define_schema(cls):
         return IO.Schema(
             node_id="GetImageSize",
+            search_aliases=["dimensions", "resolution", "image info"],
             display_name="Get Image Size",
             description="Returns width and height of the image, and passes it through unchanged.",
             category="image",
@@ -505,11 +509,11 @@ class GetImageSize(IO.ComfyNode):
 
 
 class ImageRotate(IO.ComfyNode):
-
     @classmethod
     def define_schema(cls):
         return IO.Schema(
             node_id="ImageRotate",
+            search_aliases=["turn", "flip orientation"],
             category="image/transform",
             inputs=[
                 IO.Image.Input("image"),
@@ -535,11 +539,11 @@ class ImageRotate(IO.ComfyNode):
 
 
 class ImageFlip(IO.ComfyNode):
-
     @classmethod
     def define_schema(cls):
         return IO.Schema(
             node_id="ImageFlip",
+            search_aliases=["mirror", "reflect"],
             category="image/transform",
             inputs=[
                 IO.Image.Input("image"),

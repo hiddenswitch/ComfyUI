@@ -82,6 +82,7 @@ class ClipVisionModel():
         outputs = Output()
         outputs["last_hidden_state"] = out[0].to(model_management.intermediate_device())
         outputs["image_embeds"] = out[2].to(model_management.intermediate_device())
+        outputs["image_sizes"] = [pixel_values.shape[1:]] * pixel_values.shape[0]
         if self.return_all_hidden_states:
             all_hs = out[1].to(model_management.intermediate_device())
             outputs["penultimate_hidden_states"] = all_hs[:, -2]
