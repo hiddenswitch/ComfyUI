@@ -205,7 +205,6 @@ ci = [
     "comfyui @ git+https://github.com/hiddenswitch/ComfyUI.git",
     "pytest",
     "pytest-asyncio",
-    "pytest-rerunfailures",
     "pillow",
 ]
 
@@ -404,7 +403,7 @@ jobs:
     # Option 2: Self-hosted runner with a GPU label.
     # Install the runner agent on a machine with an NVIDIA GPU:
     #   mkdir actions-runner && cd actions-runner
-    #   curl -o actions-runner-linux-x64.tar.gz -L https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
+    #   curl -o actions-runner-linux-x64.tar.gz -L https://github.com/actions/runner/releases/download/v2.331.0/actions-runner-linux-x64-2.331.0.tar.gz
     #   tar xzf actions-runner-linux-x64.tar.gz
     #   ./config.sh --url https://github.com/YOUR_ORG/YOUR_REPO --token YOUR_TOKEN --labels gpu
     #   ./run.sh  # or install as a systemd service with ./svc.sh install
@@ -456,7 +455,6 @@ Key points:
 - **Swap**: The 16 GB swap file acts as a safety net for RAM spikes during model loading. Without it, the kernel OOM-kills the process. This is a one-time cost at the start of the job.
 - **Cache**: `actions/cache` persists all of `~/.cache` between runs — this covers Hugging Face models, `uv` package downloads, and other cached data. The key is derived from `pyproject.toml` (dependency changes invalidate the `uv` cache) and `conftest.py` (model registration changes invalidate the HF cache). For self-hosted runners, `~/.cache` persists naturally across jobs.
 - **`HF_TOKEN`**: Required for gated models (FLUX, SD3, etc.). Add it as a repository secret under Settings > Secrets and variables > Actions.
-- **`--reruns`**: GPU inference can be flaky (OOM, driver issues). `pytest-rerunfailures` retries failed tests automatically.
 - **`cancel-in-progress`**: Kills running jobs when a new commit is pushed, avoiding wasted GPU time.
 - **`paths-ignore`**: Skips expensive GPU tests for documentation-only changes.
 
