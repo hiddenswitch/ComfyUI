@@ -79,7 +79,7 @@ For developers contributing to the codebase or building on top of it.
 
 ### Using ComfyUI as a Library
 
-ComfyUI can run embedded inside your own Python application — no server, no subprocess. Use the `Comfy` async context manager to execute workflows directly:
+ComfyUI can run embedded inside your own Python application. No server is started, no subprocesses are used. Use the `Comfy` async context manager to execute workflows directly:
 
 ```python
 from comfy.client.embedded_comfy_client import Comfy
