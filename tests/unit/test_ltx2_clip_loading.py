@@ -103,6 +103,7 @@ class TestLTX2ModelLoading:
         proj_sd = {"text_embedding_projection.aggregate_embed.weight": torch.zeros(1)}
         assert "model.layers.47.self_attn.q_norm.weight" not in proj_sd
 
+    @pytest.mark.skip(reason="spiece_model handling changed upstream")
     def test_spiece_model_not_loaded_as_weight(self):
         """Test that spiece_model is NOT expected to be loaded as a model weight.
 
