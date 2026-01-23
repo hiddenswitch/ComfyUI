@@ -129,7 +129,6 @@ class TAEHV(nn.Module):
         self.latent_channels = latent_channels
         self.parallel = parallel
         self.latent_format = latent_format
-        self.show_progress_bar = show_progress_bar
         self.process_in = latent_format().process_in if latent_format is not None else (lambda x: x)
         self.process_out = latent_format().process_out if latent_format is not None else (lambda x: x)
         if self.latent_channels in [48, 32]:  # Wan 2.2 and HunyuanVideo1.5
@@ -161,8 +160,9 @@ class TAEHV(nn.Module):
         self.t_downscale = 2 ** sum(t.stride == 2 for t in self.encoder if isinstance(t, TPool))
         self.t_upscale = 2 ** sum(t.stride == 2 for t in self.decoder if isinstance(t, TGrow))
         self.frames_to_trim = self.t_upscale - 1
-        self._show_progress_bar = show_progress_bar @ property
+        self._show_progress_bar = show_progress_bar
 
+    @property
     def show_progress_bar(self):
         return self._show_progress_bar
 

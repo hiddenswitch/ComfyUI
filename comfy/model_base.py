@@ -29,6 +29,7 @@ from . import ops
 from . import utils
 from .conds import CONDRegular, CONDConstant
 from .ldm.ace.model import ACEStepTransformer2DModel
+from .ldm.anima.model import Anima as AnimaModel
 from .ldm.audio.dit import AudioDiffusionTransformer
 from .ldm.audio.embedders import NumberConditioner
 from .ldm.aura.mmdit import MMDiT as AuraMMDiT
@@ -1195,7 +1196,7 @@ class CosmosPredict2(BaseModel):
 
 class Anima(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
-        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.anima.model.Anima)
+        super().__init__(model_config, model_type, device=device, unet_model=AnimaModel)
 
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)

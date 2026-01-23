@@ -11,7 +11,7 @@ from .causal_conv3d import CausalConv3d
 from .pixel_norm import PixelNorm
 from ..model import PixArtAlphaCombinedTimestepSizeEmbeddings
 from ....ops import disable_weight_init as ops
-from comfy.ldm.modules.diffusionmodules.model import torch_cat_if_needed
+from ...modules.diffusionmodules.model import torch_cat_if_needed
 
 
 def mark_conv3d_ended(module):

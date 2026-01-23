@@ -13,7 +13,7 @@ from ..modules.attention import optimized_attention_masked
 from ..flux.layers import EmbedND
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 from ..flux.math import apply_rope
-import comfy.utils
+from ... import utils as comfy_utils
 
 
 def invert_slices(slices, length):
@@ -738,7 +738,7 @@ class NextDiT(nn.Module):
                 out = self.embed_all(ref, ref_con, sig_feat, offset=start_t, omni=omni, transformer_options=transformer_options)
                 for i, e in enumerate(out[0]):
                     if e is not None:
-                        embeds[i].append(comfy.utils.repeat_to_batch_size(e, bsz))
+                        embeds[i].append(comfy_utils.repeat_to_batch_size(e, bsz))
                         freqs_cis[i].append(out[1][i])
                 start_t = out[2]
             leftover_cap = ref_contexts[len(ref_latents):]
@@ -750,7 +750,7 @@ class NextDiT(nn.Module):
         cap_len = out[0][0].shape[1]
         for i, e in enumerate(out[0]):
             if e is not None:
-                e = comfy.utils.repeat_to_batch_size(e, bsz)
+                e = comfy_utils.repeat_to_batch_size(e, bsz)
                 embeds[i].append(e)
                 freqs_cis[i].append(out[1][i])
         start_t = out[2]
@@ -758,7 +758,7 @@ class NextDiT(nn.Module):
         for cap in leftover_cap:
             out = self.embed_cap(cap, offset=start_t, bsz=bsz, device=x.device, dtype=x.dtype)
             cap_len += out[0][0].shape[1]
-            embeds[0].append(comfy.utils.repeat_to_batch_size(out[0][0], bsz))
+            embeds[0].append(comfy_utils.repeat_to_batch_size(out[0][0], bsz))
             freqs_cis[0].append(out[1][0])
             start_t += out[2]
 

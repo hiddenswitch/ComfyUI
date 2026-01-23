@@ -4,22 +4,15 @@ A vanilla, up-to-date fork of [ComfyUI](https://github.com/comfyanonymous/comfyu
 
 ## Key Features and Differences
 
-This LTS fork enhances vanilla ComfyUI with enterprise-grade features, focusing on stability, ease of deployment, and scalability while maintaining full compatibility.
+This LTS fork adds development, embedding, automated testing, LLM and distributed inference features to ComfyUI, but maintains compatibility with custom nodes from the ecosystem.
 
-### Deployment and Installation
 - **Pip and UV Installable:** Install via `pip` or `uv` directly from GitHub. No manual cloning required for users.
 - **Automatic Model Downloading:** Missing models (e.g., Stable Diffusion, FLUX, LLMs) are downloaded on-demand from Hugging Face or CivitAI.
 - **Docker and Containers:** First-class support for Docker and Kubernetes with optimized containers for NVIDIA and AMD.
-
-### Scalability and Performance
 - **Distributed Inference:** Run scalable inference clusters with multiple workers and frontends using RabbitMQ.
-- **Embedded Mode:** Use ComfyUI as a Python library (`import comfy`) inside your own applications without the web server.
-- **LTS Custom Nodes:** A curated set of "Installable" custom nodes (ControlNet, AnimateDiff, IPAdapter) optimized for this fork.
-
-### Compatibility
+- **Embedded / Library:** Use ComfyUI as a Python library (`import comfy`) inside your own applications without the web server. Runs like `diffusers`.
 - **Vanilla Custom Nodes:** Fully compatible with existing ComfyUI custom nodes (ComfyUI-Manager, WanVideoWrapper, KJNodes, etc.). Clone into `custom_nodes/` and install dependencies into your venv.
-
-### Enhanced Capabilities
+- **LTS Custom Nodes:** A curated set of "Installable" custom nodes (ControlNet, AnimateDiff, IPAdapter) optimized for this fork.
 - **LLM Support:** Native support for Large Language Models (LLaMA, Phi-3, etc.) and multi-modal workflows.
 - **API and Configuration:** Enhanced API endpoints and extensive configuration options via CLI args, env vars, and config files.
 - **Tests:** Automated test suite ensuring stability for new features.
@@ -47,7 +40,6 @@ For users who want to run ComfyUI for generating images and videos.
     uv venv --python 3.12
     
     # Install ComfyUI LTS
-    # This is the only supported configuration. Lockfiles will always reflect the default wheels for the platform.
     uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
     
     # Run

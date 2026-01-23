@@ -1,7 +1,7 @@
 import torch
 from einops import rearrange, repeat
-import comfy
-from comfy.ldm.modules.attention import optimized_attention
+from ...patcher_extension import WrappersMP
+from ..modules.attention import optimized_attention
 
 
 def calculate_x_ref_attn_map(visual_q, ref_k, ref_target_masks, split_num=8):
@@ -480,7 +480,7 @@ class InfiniteTalkOuterSampleWrapper:
         # for InfiniteTalk, model input first latent(s) need to always be replaced on every step
         if self.motion_frames_latent is not None:
             wrappers = model_options["transformer_options"]["wrappers"]
-            w = wrappers.setdefault(comfy.patcher_extension.WrappersMP.APPLY_MODEL, {})
+            w = wrappers.setdefault(WrappersMP.APPLY_MODEL, {})
             w["MultiTalk_apply_model"] = [MultiTalkApplyModelWrapper(process_latent_in(self.motion_frames_latent))]
 
         # run the sampling process

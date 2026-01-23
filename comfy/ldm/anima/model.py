@@ -1,4 +1,4 @@
-from comfy.ldm.cosmos.predict2 import MiniTrainDIT
+from ..cosmos.predict2 import MiniTrainDIT
 import torch
 from torch import nn
 import torch.nn.functional as F
