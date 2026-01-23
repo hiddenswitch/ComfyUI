@@ -8,6 +8,8 @@ ComfyUI can be used as an embedded library inside your own Python application. N
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 ```
 
+`--torch-backend=auto` installs the correct `torch`, `torchvision`, and `torchaudio` for your platform. Omit `--torch-backend` if you want to keep your currently installed PyTorch.
+
 ## Running a Workflow
 
 Save a workflow from the ComfyUI web UI in API format (a JSON file). This JSON is a valid Python `dict[str, Any]` literal — paste it directly into your code:

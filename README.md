@@ -46,6 +46,8 @@ For users who want to run ComfyUI for generating images and videos.
     uv venv --python 3.12
     
     # Install ComfyUI LTS
+    # --torch-backend=auto installs the correct torch, torchvision and torchaudio for your platform.
+    # Omit --torch-backend if you want to keep your currently installed PyTorch.
     uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
     
     # Run
