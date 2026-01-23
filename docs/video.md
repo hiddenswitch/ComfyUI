@@ -27,47 +27,12 @@ Improve the performance of your Mochi model video generation using **Sage Attent
 
 **Installation**
 
-On Windows, you will need the CUDA Toolkit and Visual Studio 2022. If you do not already have this, use `chocolatey`:
-
-```powershell
-# install chocolatey
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-choco install -y visualstudio2022buildtools
-# purposefully executed separately
-choco install -y visualstudio2022-workload-vctools
-choco install -y vcredist2010 vcredist2013 vcredist140
-```
-
-Then, visit [NVIDIA.com's CUDA Toolkit Download Page](https://developer.nvidia.com/cuda-12-6-0-download-archive?target_os=Windows&target_arch=x86_64&target_version=Server2022&target_type=exe_network) and download and install the CUDA Toolkit. Verify it is correctly installed by running `nvcc --version`.
-
-You are now ready to install Sage Attention 2.
-
-### Linux
-
-```shell
-uv pip install --no-build-isolation "sageattention@git+https://github.com/thu-ml/SageAttention.git"
-```
-
-### Windows
-
-Run this PowerShell script to install the correct version of Sage Attention for your installed PyTorch version:
-
-```powershell
-$torch_version = (uv pip freeze | Select-String "torch==").ToString().Trim()
-$cuda_version = $torch_version -replace ".*(cu\d+).*", "`$1"
-if ($torch_version -match "\+cu") {
-    $v = $torch_version -replace "torch==", ""
-    $package_specifier = "sageattention==2.2.0+$($cuda_version)torch$v"
-    uv pip install --find-links https://raw.githubusercontent.com/hiddenswitch/ComfyUI/main/pypi/sageattention_index.html $package_specifier
-} else {
-    Write-Host "Could not determine CUDA version from torch version: $torch_version"
-}
-```
+See the [SageAttention installation instructions](installing.md#sageattention) for platform-specific setup.
 
 To start ComfyUI with it:
 
 ```shell
-uv run comfyui --use-sage-attention
+uv run --no-sync comfyui --use-sage-attention
 ```
 
 ![with_sage_attention.webp](./docs/assets/with_sage_attention.webp)
@@ -87,7 +52,7 @@ uv pip install --no-build-isolation flash_attn
 To start ComfyUI with it:
 
 ```shell
-uv run comfyui --use-flash-attention
+uv run --no-sync comfyui --use-flash-attention
 ```
 
 ![with_sage_attention.webp](./docs/assets/with_sage_attention.webp)

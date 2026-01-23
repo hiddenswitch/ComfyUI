@@ -44,6 +44,41 @@ def cuda_malloc_warning():
                 "\nWARNING: this card most likely does not support cuda-malloc, if you get \"CUDA error\" please run ComfyUI with: --disable-cuda-malloc\n")
 
 
+def vram_performance_warnings():
+    import psutil
+    import torch
+
+    args = current_execution_context().configuration
+    total_vram_mb = model_management.total_vram
+
+    if total_vram_mb <= 16384 and not args.novram:
+        logger.warning(
+            "You have %.0f MB of VRAM. For best performance with 16GB or less, start ComfyUI with --novram. "
+            "This aggressively offloads models without meaningfully impacting inference speed.",
+            total_vram_mb
+        )
+
+    if total_vram_mb <= 16384 and not args.disable_pinned_memory:
+        swap = psutil.swap_memory()
+        physical_ram = psutil.virtual_memory().total
+        if swap.total > 0 and physical_ram < 32 * 1024 * 1024 * 1024:
+            logger.warning(
+                "Swap is enabled with less than 32GB of physical RAM and 16GB or less of VRAM. "
+                "Consider starting ComfyUI with --disable-pinned-memory to avoid swap thrashing."
+            )
+
+    if torch.cuda.is_available():
+        from ..cli_args import PerformanceFeature
+        device = model_management.get_torch_device()
+        if hasattr(device, 'type') and device.type == 'cuda':
+            props = torch.cuda.get_device_properties(device)
+            if props.major >= 8 and PerformanceFeature.CublasOps not in args.fast:
+                logger.warning(
+                    "You have an Ampere or newer GPU (%s). Consider starting ComfyUI with --fast cublas_ops for improved performance.",
+                    props.name
+                )
+
+
 def handle_comfyui_manager_unavailable(args: Configuration):
     if not args.windows_standalone_build:
         logger.warning(f"\n\nYou appear to be running comfyui-manager from source, this is not recommended. Please install comfyui-manager using the following command:\ncommand:\n\t{sys.executable} -m pip install --pre comfyui_manager\n")
@@ -299,6 +334,7 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
 
     server.add_routes()
     cuda_malloc_warning()
+    vram_performance_warnings()
     setup_database()
 
     # in a distributed setting, the default prompt worker will not be able to send execution events via the websocket

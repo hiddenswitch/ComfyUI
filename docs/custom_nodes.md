@@ -64,7 +64,67 @@ The installation process for ComfyUI-Manager requires two steps: installing its 
 
 ### Vanilla Custom Nodes
 
-Clone the repository containing the custom nodes into `custom_nodes/` in your working directory and install its requirements, or use the manager.
+This fork is fully compatible with ordinary ComfyUI custom nodes from the ecosystem. As long as you install a node's dependencies into your virtual environment and clone it into the `custom_nodes/` directory that ComfyUI is scanning, everything will work.
+
+#### Step 1: Open a Terminal in Your Workspace
+
+Your workspace is the directory where you ran `uv venv` during installation (the one containing your `.venv` folder).
+
+**Windows (PowerShell):**
+```powershell
+cd ~\Documents\ComfyUI_Workspace
+.\.venv\Scripts\Activate.ps1
+```
+
+**macOS:**
+```shell
+cd ~/Documents/ComfyUI_Workspace
+source .venv/bin/activate
+```
+
+**Linux:**
+```shell
+cd ~/Documents/ComfyUI_Workspace
+source .venv/bin/activate
+```
+
+#### Step 2: Create the `custom_nodes` Directory (if it doesn't exist)
+
+```shell
+mkdir -p custom_nodes
+```
+
+On Windows PowerShell, use:
+```powershell
+if (!(Test-Path custom_nodes)) { mkdir custom_nodes }
+```
+
+#### Step 3: Clone the Custom Node and Install Dependencies
+
+Clone the repository into `custom_nodes/` and install its Python dependencies:
+
+```shell
+git clone --depth 1 https://github.com/kijai/ComfyUI-KJNodes.git custom_nodes/ComfyUI-KJNodes
+uv pip install -r custom_nodes/ComfyUI-KJNodes/requirements.txt
+```
+
+Some nodes may not have a `requirements.txt`. In that case, skip the `uv pip install` step.
+
+#### Step 4: Restart ComfyUI
+
+After cloning and installing dependencies, restart ComfyUI. The new nodes will be available in the node menu.
+
+#### More Examples
+
+```shell
+# WAN Video Wrapper
+git clone --depth 1 https://github.com/kijai/ComfyUI-WanVideoWrapper.git custom_nodes/ComfyUI-WanVideoWrapper
+uv pip install -r custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt
+
+# ComfyUI-Manager (also available as an installable, see above)
+git clone --depth 1 https://github.com/Comfy-Org/ComfyUI-Manager.git custom_nodes/ComfyUI-Manager
+uv pip install -r custom_nodes/ComfyUI-Manager/requirements.txt
+```
 
 ### Custom Nodes Authored for this Fork
 
@@ -290,14 +350,14 @@ options:
 You can now start `comfyui` with:
 
 ```shell
-uv run comfyui --openai-api-key=abcdefg12345
+uv run --no-sync comfyui --openai-api-key=abcdefg12345
 ```
 
 or set the environment variable you specified:
 
 ```shell
 export OPENAI_API_KEY=abcdefg12345
-uv run comfyui
+uv run --no-sync comfyui
 ```
 
 or add it to your config file:
@@ -316,7 +376,7 @@ Since `comfyui` looks for a `config.yaml` in your current working directory by d
 `config.yaml` is located in your current working directory:
 
 ```shell
-uv run comfyui
+uv run --no-sync comfyui
 ```
 
 Your entry point for adding configuration options should **not** import your nodes. This gives you the opportunity to

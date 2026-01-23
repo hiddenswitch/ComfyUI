@@ -2,110 +2,211 @@
 
 ## Installing
 
-These instructions will install an interactive ComfyUI using the command line.
+These instructions will install an interactive ComfyUI using the command line. Find your platform and GPU below and copy-paste the complete sequence of commands.
 
-### Windows
+When you run workflows that use well-known models, they will be downloaded automatically.
 
-When using Windows, open the **Windows Powershell** app. Then observe you are at a command line, and it is printing "where" you are in your file system: your user directory (e.g., `C:\Users\doctorpangloss`). This is where a bunch of files will go. If you want files to go somewhere else, consult a chat bot for the basics of using command lines, because it is beyond the scope of this document. Then:
+### Linux — NVIDIA (CUDA)
 
-1. Install Python 3.12, 3.11 or 3.10. You can do this from the Python website; or, you can use `chocolatey`, a Windows package manager:
-
-   ```shell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-   ```
-
-2. Install `uv`, which makes subsequent installation of Python packages much faster:
-
-    ```shell
-    choco install -y uv
-    ```
-
-3. Switch into a directory that you want to store your outputs, custom nodes and models in. This is your ComfyUI workspace. For example, if you want to store your workspace in a directory called `ComfyUI_Workspace` in your Documents folder:
-
-   ```powershell
-   mkdir ~/Documents/ComfyUI_Workspace
-   cd ~/Documents/ComfyUI_Workspace
-   ```
-
-4. Create a virtual environment:
-   ```shell
-   uv venv --python 3.12
-   ```
-5. Run the following command to install `comfyui` into your current environment. This will correctly select the version of `torch` that matches the GPU on your machine (NVIDIA or CPU on Windows, NVIDIA, Intel, AMD or CPU on Linux):
-   ```powershell
-   uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-   ```
-6. To run the web server:
-   ```shell
-   uv run comfyui
-   ```
-   When you run workflows that use well-known models, this will download them automatically.
-
-   To make it accessible over the network:
-   ```shell
-   uv run comfyui --listen
-   ```
-
-**Running**
-
-On Windows, you should change into the directory where you ran `uv venv`, then run `comfyui`. For example, if you ran `uv venv` inside `~\Documents\ComfyUI_Workspace\`
-
-```powershell
-cd ~\Documents\ComfyUI_Workspace\
-uv run comfyui
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui
 ```
 
-Upgrades are delivered frequently and automatically. To force one immediately, run `uv pip install --upgrade` like so:
+### Linux — AMD RX 7000 (RDNA 3)
 
+Requires the latest AMDGPU driver.
+
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui --fp32-vae
+```
+
+### Linux — AMD RX 9000 (RDNA 4)
+
+Requires the latest AMDGPU driver.
+
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui --fp32-vae
+```
+
+### Windows — NVIDIA (CUDA)
+
+Open **Windows PowerShell**, then:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+choco install -y uv
+mkdir ~\Documents\ComfyUI_Workspace
+cd ~\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui
+```
+
+### Windows — AMD RX 7000 (RDNA 3)
+
+Requires the latest Adrenaline driver. Open **Windows PowerShell**, then:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+choco install -y uv
+mkdir ~\Documents\ComfyUI_Workspace
+cd ~\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui --fp32-vae
+```
+
+### Windows — AMD RX 9000 (RDNA 4)
+
+Requires the latest Adrenaline driver. Open **Windows PowerShell**, then:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+choco install -y uv
+mkdir ~\Documents\ComfyUI_Workspace
+cd ~\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui --fp32-vae
+```
+
+### macOS (Apple Silicon)
+
+```shell
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
+mkdir -p ~/Documents/ComfyUI_Workspace && cd ~/Documents/ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui
+```
+
+### Running Again Later
+
+To start ComfyUI again after closing your terminal, `cd` into your workspace and run:
+
+```shell
+cd ~/ComfyUI_Workspace
+uv run --no-sync comfyui
+```
+
+On Windows:
+```powershell
+cd ~\Documents\ComfyUI_Workspace
+uv run --no-sync comfyui
+```
+
+### Upgrading
+
+```shell
+uv pip install --upgrade "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+```
+
+For NVIDIA users who want to ensure the correct CUDA version is maintained:
 ```shell
 uv pip install --torch-backend=auto --upgrade "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 ```
 
-### macOS
+### Other AMD GPUs (ROCm)
 
-1. Install `brew`, a macOS package manager, if you haven't already:
-   ```shell
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-   Then, install `uv`:
-   ```shell
-   HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
-   ```
-3. Switch into a directory that you want to store your outputs, custom nodes and models in. This is your ComfyUI workspace. For example, if you want to store your workspace in a directory called `ComfyUI_Workspace` in your Documents folder:
+The following architectures are also supported. Install PyTorch from the matching index, then install ComfyUI:
 
-   ```shell
-   mkdir -pv ~/Documents/ComfyUI_Workspace
-   cd ~/Documents/ComfyUI_Workspace
-   ```
+**Strix Halo iGPU (RDNA 3.5, `gfx1151`):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+```
 
-4. Create a virtual environment:
-   ```shell
-   uv venv --python 3.12
-   ```
+**Instinct MI300A / MI300X (CDNA 3, `gfx942`):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+```
 
-5. Run the following command to install `comfyui` into your current environment. The `mps` extra improves performance.
-   ```shell
-   uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-   ```
-6. To run the web server:
-   ```shell
-   uv run comfyui
-   ```
-   When you run workflows that use well-known models, this will download them automatically.
+**Instinct MI350X / MI355X (CDNA 4, `gfx950`):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+```
 
-   To make it accessible over the network:
-   ```shell
-   uv run comfyui --listen
-   ```
+**RX 6000 (RDNA 2) and RX 5000 (RDNA 1):** These architectures are no longer well supported by AMD. There are no architecture-specific builds available.
 
-**Running**
+## Why `--no-sync`?
 
-On macOS, you will need to open the terminal and `cd` into the directory in which you ran `uv venv`. For example, if you ran `uv venv` in `~/Documents/ComfyUI_Workspace/`:
+By default, `uv run` performs a project sync before running the command. This means it checks the lockfile, resolves dependencies, and potentially modifies your environment every time you run ComfyUI. This is undesirable because:
+
+- It adds startup latency
+- It can unexpectedly change your installed packages
+- It can fail if network is unavailable
+
+Using `--no-sync` skips this automatic sync. You already installed packages explicitly with `uv pip install`, so there is no need for `uv run` to re-resolve them. See the [uv documentation on automatic sync](https://docs.astral.sh/uv/concepts/projects/sync/#automatic-lock-and-sync) for more details.
+
+## CUDA and PyTorch
+
+### You Do Not Need the CUDA SDK
+
+ComfyUI does not require the CUDA Toolkit (nvcc) to be installed on your system. PyTorch ships with its own CUDA runtime libraries bundled inside the pip package. The only requirement is an NVIDIA driver that supports the CUDA version used by your PyTorch build.
+
+### Checking Your Driver's CUDA Version
+
+To see the highest CUDA version supported by your installed driver:
 
 ```shell
-cd ~/Documents/ComfyUI_Workspace/
-uv run comfyui
+nvidia-smi
 ```
+
+Look for the "CUDA Version" in the top-right corner of the output. For example, `CUDA Version: 12.8` means your driver supports CUDA 12.8 and below.
+
+### Understanding `--torch-backend`
+
+The `--torch-backend` flag tells `uv` which PyTorch package index to use when resolving `torch` and its related packages (`torchvision`, `torchaudio`, etc.). Without it, `uv` would install CPU-only PyTorch.
+
+- `--torch-backend=auto` — automatically detects your platform and selects the appropriate CUDA version
+- `--torch-backend=cu128` — explicitly selects CUDA 12.8
+- `--torch-backend=cu130` — explicitly selects CUDA 13.0
+- `--torch-backend=cpu` — CPU-only (no GPU acceleration)
+
+This flag also works when installing prerelease (nightly) PyTorch builds:
+
+```shell
+# Install the latest prerelease torch with auto-detected CUDA
+uv pip install --torch-backend=auto --prerelease=allow torch
+
+# Install a specific prerelease version
+uv pip install --torch-backend=auto --prerelease=allow "torch>=2.9.0.dev"
+```
+
+This is useful for testing new PyTorch features or getting early access to new CUDA version support.
+
+### Installing a Specific CUDA Build
+
+If you need to target a specific CUDA version (e.g., to match your driver or for compatibility):
+
+```shell
+# Install with CUDA 12.8
+uv pip install --torch-backend=cu128 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+
+# Install with CUDA 13.0
+uv pip install --torch-backend=cu130 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+```
+
+See the [uv PyTorch integration guide](https://docs.astral.sh/uv/guides/integration/pytorch/) for more details.
 
 ## Model Downloading
 
@@ -181,25 +282,135 @@ To serve with `https://` on Windows easily, use [Caddy](https://github.com/caddy
 caddy reverse-proxy --from localhost:443 --to localhost:8188 --tls self_signed
 ```
 
-##### Notes for AMD Users
+## Performance
 
-Installation for `ROCm` should be explicit:
+### Memory Offloading (`--novram`)
+
+If you have 16GB of VRAM or less, start ComfyUI with `--novram`:
+
 ```shell
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run --no-sync comfyui --novram
 ```
 
-Then, until a workaround is found, specify these variables:
+Despite the name, `--novram` does not prevent GPU usage. It aggressively offloads model weights from VRAM when they are not actively needed. On modern systems with fast PCIe connections, this has minimal impact on inference speed while allowing you to run much larger models.
 
-RDNA 3 (RX 7600 and later)
+### Model Quantization
+
+Inference speed is proportional to a model's size in memory. Quantized models run faster because they consume less memory bandwidth. However, not all quantization formats are equal:
+
+- **FP8 quantizations** (e.g., `fp8_e4m3fn`) offer the best quality-to-speed tradeoff. They are smaller than full-precision models while maintaining high output quality.
+- **GGUF quantizations** produce noticeably worse output quality. You are better off using a full-precision or FP8 model with `--novram` than using a GGUF model that fits in VRAM.
+
+For diffusion models, the amount of the model resident in VRAM at any given time does not meaningfully affect inference speed, because the bottleneck is the sequential denoising steps, not weight loading. Use the highest quality quantization available and rely on `--novram` for memory management.
+
+### Swap and Pinned Memory
+
+If your system has swap enabled and you have less than 16GB of VRAM, you should disable pinned memory:
 
 ```shell
-export HSA_OVERRIDE_GFX_VERSION=11.0.0
-uv run comfyui
+uv run --no-sync comfyui --novram --disable-pinned-memory
 ```
 
-RDNA 2 (RX 6600 and others)
+Pinned (page-locked) memory cannot be swapped out by the OS. On memory-constrained systems with swap enabled, this can cause the remaining unpinned memory to thrash to disk, resulting in worse performance than not using pinned memory at all.
+
+### NVIDIA Ampere and Newer (`--fast cublas_ops`) (CUDA only)
+
+If you have an Ampere GPU (RTX 30 series, A100) or newer (RTX 40 series, RTX 50 series), enable cuBLAS optimizations:
 
 ```shell
-export HSA_OVERRIDE_GFX_VERSION=10.3.0
-uv run comfyui
+uv run --no-sync comfyui --fast cublas_ops
+```
+
+This uses optimized cuBLAS matrix multiplication kernels that are available on compute capability 8.0+ hardware.
+
+## Triton
+
+Triton is used by some custom nodes and performance features.
+
+### CUDA
+
+**Linux:**
+```shell
+uv pip install --torch-backend=auto triton
+```
+
+**Windows:**
+```powershell
+uv pip install triton-windows
+```
+
+See https://github.com/woct0rdho/triton-windows for details.
+
+### ROCm
+
+The ROCm nightly indexes include Triton under the package name `triton` (not `pytorch-triton-rocm`). This works on both Linux and Windows. Install it from the same index URL you used for PyTorch:
+
+**RX 9000 (RDNA 4):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre triton
+```
+
+**RX 7000 (RDNA 3):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre triton
+```
+
+**Strix Halo (RDNA 3.5):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ --pre triton
+```
+
+**Instinct MI300 (CDNA 3):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/ --pre triton
+```
+
+**Instinct MI350 (CDNA 4):**
+```shell
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --pre triton
+```
+
+If you followed the ROCm installation steps above, Triton was already installed alongside PyTorch.
+
+## SageAttention (CUDA only)
+
+SageAttention accelerates attention computation in diffusion models. It requires PyTorch >= 2.9 (included by default).
+
+### Windows
+
+Install the prebuilt wheel matching your CUDA version. Check your CUDA version with `nvidia-smi`.
+
+**Pascal and older GPUs (last generation supported by CUDA 12.8):**
+
+```powershell
+uv pip install "sageattention@https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu128torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl"
+```
+
+**Turing and newer GPUs (CUDA 13.0):**
+
+```powershell
+uv pip install "sageattention@https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu130torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl"
+```
+
+See https://github.com/woct0rdho/SageAttention for more builds.
+
+### Linux
+
+Install the prebuilt wheel (no CUDA Toolkit required):
+
+```shell
+uv pip install pkg/sageattention-2.2.0-cp39-abi3-linux_x86_64.whl
+```
+
+Or build from source (requires CUDA Toolkit and build tools):
+
+```shell
+sudo apt-get install -y build-essential nvidia-cuda-toolkit
+uv pip install --no-build-isolation "sageattention@git+https://github.com/woct0rdho/SageAttention.git"
+```
+
+### Running with SageAttention
+
+```shell
+uv run --no-sync comfyui --use-sage-attention
 ```

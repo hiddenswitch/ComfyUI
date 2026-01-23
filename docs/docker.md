@@ -56,20 +56,35 @@ docker compose up
 
 # Containers
 
-On NVIDIA:
+## NVIDIA (CUDA)
 
-```agsl
-docker pull ghcr.io/hiddenswitch/comfyui:latest
-```
-
-To run:
-
-**Windows, `cmd`**
 ```shell
-docker run -p "8188:8188" -v %cd%:/workspace -w "/workspace" --rm -it --gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 ghcr.io/hiddenswitch/comfyui:latest
+docker pull ghcr.io/hiddenswitch/comfyui:latest-cuda
 ```
 
-**Linux**:
+**Linux:**
 ```shell
-docker run -p "8188:8188" -v $(pwd):/workspace -w "/workspace" --rm -it --gpus=all --ipc=host ghcr.io/hiddenswitch/comfyui:latest
+docker run -p "8188:8188" -v $(pwd):/workspace -w "/workspace" --rm -it --gpus=all --ipc=host ghcr.io/hiddenswitch/comfyui:latest-cuda
 ```
+
+**Windows (Docker Desktop with WSL2):**
+```powershell
+docker run -p "8188:8188" -v ${PWD}:/workspace -w "/workspace" --rm -it --gpus=all --ipc=host ghcr.io/hiddenswitch/comfyui:latest-cuda
+```
+
+The `--gpus=all` flag passes all NVIDIA GPUs into the container. This requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on Linux, or Docker Desktop with WSL2 GPU support on Windows.
+
+## AMD (ROCm)
+
+ROCm GPU passthrough uses device nodes instead of `--gpus`. This is Linux-only.
+
+```shell
+docker pull ghcr.io/hiddenswitch/comfyui:latest-rocm
+```
+
+**Linux:**
+```shell
+docker run -p "8188:8188" -v $(pwd):/workspace -w "/workspace" --rm -it --device /dev/kfd --device /dev/dri --group-add video --ipc=host ghcr.io/hiddenswitch/comfyui:latest-rocm
+```
+
+The `--device /dev/kfd --device /dev/dri` flags pass the AMD GPU kernel driver and render nodes into the container. `--group-add video` grants the necessary permissions to access the GPU.

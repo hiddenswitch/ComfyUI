@@ -16,6 +16,9 @@ This LTS fork enhances vanilla ComfyUI with enterprise-grade features, focusing 
 - **Embedded Mode:** Use ComfyUI as a Python library (`import comfy`) inside your own applications without the web server.
 - **LTS Custom Nodes:** A curated set of "Installable" custom nodes (ControlNet, AnimateDiff, IPAdapter) optimized for this fork.
 
+### Compatibility
+- **Vanilla Custom Nodes:** Fully compatible with existing ComfyUI custom nodes (ComfyUI-Manager, WanVideoWrapper, KJNodes, etc.). Clone into `custom_nodes/` and install dependencies into your venv.
+
 ### Enhanced Capabilities
 - **LLM Support:** Native support for Large Language Models (LLaMA, Phi-3, etc.) and multi-modal workflows.
 - **API and Configuration:** Enhanced API endpoints and extensive configuration options via CLI args, env vars, and config files.
@@ -48,7 +51,7 @@ For users who want to run ComfyUI for generating images and videos.
     uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
     
     # Run
-    uv run comfyui
+    uv run --no-sync comfyui
     ```
 
 ### Developers
@@ -66,15 +69,31 @@ For developers contributing to the codebase or building on top of it.
     # Create virtual environment
     uv venv --python 3.12
     source .venv/bin/activate
-    
+
     # Install in editable mode with dev dependencies
     uv pip install -e .[dev]
     ```
 
 3.  **Run**:
     ```bash
-    uv run comfyui
+    uv run --no-sync comfyui
     ```
+
+### Using ComfyUI as a Library
+
+ComfyUI can run embedded inside your own Python application — no server, no subprocess. Use the `Comfy` async context manager to execute workflows directly:
+
+```python
+from comfy.client.embedded_comfy_client import Comfy
+
+async with Comfy() as client:
+    outputs = await client.queue_prompt(workflow_dict)
+    # All models unloaded and VRAM released on exit
+```
+
+Build workflows programmatically with `GraphBuilder`, or paste API-format JSON from the web UI. Stream previews during inference with `queue_with_progress`.
+
+See [Embedded / Library Usage](docs/embedded.md) for complete examples.
 
 ## Documentation
 
@@ -93,7 +112,8 @@ Full documentation is available in [docs/index.md](docs/index.md).
 
 ### Extending ComfyUI
 - [Custom Nodes](docs/custom_nodes.md) (Installing & Authoring)
-- [API Usage](docs/api.md) (Python, REST, Embedded)
+- [Embedded / Library Usage](docs/embedded.md) (Python, GraphBuilder, Streaming)
+- [API Usage](docs/api.md) (REST, WebSocket)
 
 ### Deployment
 - [Distributed / Multi-GPU](docs/distributed.md)

@@ -54,32 +54,28 @@ Use `uv pip install` with the `--index-url` corresponding to your hardware.
 
 **RX 9000 Series (RDNA 4)**
 ```bash
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
 ```
 
 **RX 7000 Series (RDNA 3)**
 ```bash
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
 ```
 
-**RX 6000 Series (RDNA 2)**
-```bash
-uv pip install --torch-backend=auto --pre torch torchvision torchaudio
-```
+**RX 6000 Series (RDNA 2)** — not well supported by AMD; no architecture-specific builds are available. May work with generic ROCm builds but expect issues.
 
-**RX 5000 Series (RDNA 1)**
-```bash
-uv pip install --torch-backend=auto --pre torch torchvision torchaudio
-```
+**RX 5000 Series (RDNA 1)** — not well supported by AMD; no architecture-specific builds are available. May work with generic ROCm builds but expect issues.
 
 **Instinct MI300**
 ```bash
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/ --pre torch torchaudio torchvision
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/ --pre torch torchaudio torchvision triton
 ```
 
 ## Notes
 
+- **Python 3.12** is recommended for best compatibility across all platforms. Create your venv with `uv venv --python 3.12`.
 - **NVIDIA:** Automated testing uses official NVIDIA PyTorch containers to ensure compatibility with the latest deep learning stack.
-- **AMD:** Automated testing targets ROCm 7.0 on RDNA 3 architecture (RX 7000 series).
+- **AMD:** Automated testing targets ROCm 7.0 on RDNA 3 architecture (RX 7000 series). The ROCm nightly indexes provide both Linux (`linux_x86_64`) and Windows (`win_amd64`) wheels for RDNA 3 and newer architectures. RDNA 2 and RDNA 1 are no longer actively supported by AMD and do not have architecture-specific builds. AMD users should run with `--fp32-vae` to avoid VAE decode crashes.
 - **macOS:** Tested on macOS 14 runners with Python 3.12 using the `mps` backend for acceleration.
-- **Windows:** While not part of the automated CI loop, Windows builds are manually verified against recent PyTorch and CUDA versions on standard consumer hardware.
+- **Windows:** While not part of the automated CI loop, Windows builds are manually verified against recent PyTorch and CUDA versions on standard consumer hardware. ROCm Windows wheels are available for RDNA 3+ from the nightly indexes.
+- **Triton (ROCm):** The ROCm nightly indexes include Triton under the package name `triton` (not `pytorch-triton-rocm`). Install it from the same `--index-url` used for PyTorch. Works on both Linux and Windows.
