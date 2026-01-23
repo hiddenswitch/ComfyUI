@@ -2,6 +2,16 @@
 
 This document covers synchronization tasks needed when merging upstream ComfyUI changes.
 
+## Linting
+
+After fixing imports and other merge issues, run the linter to catch remaining problems:
+
+```bash
+pylint -j 32 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+```
+
+See [Linting Guidelines](linting.md) for custom rules and common fixes.
+
 ## CLI Arguments
 
 When upstream adds new CLI arguments to `comfy/cli_args.py`, you must also update `comfy/cli_args_types.py`:
