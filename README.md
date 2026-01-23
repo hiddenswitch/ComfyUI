@@ -2,6 +2,12 @@
 
 A vanilla, up-to-date fork of [ComfyUI](https://github.com/comfyanonymous/comfyui) intended for long term support (LTS) from [AppMana](https://appmana.com) and [Hidden Switch](https://hiddenswitch.com).
 
+## Used By
+
+Used in production by **Scopely**, a game studio, **Livepeer** and **Nunchaku Tech**. Used by innovators at **Ferrero Group**, **Hyundai** and **Nike**.
+
+If you need to develop an application or plugin around ComfyUI, this fork stays compatible and up-to-date with upstream, fixing numerous bugs and adding features. It also packages tacit knowledge about running diffusion models and art workflows, distributed inference, deployment on Kubernetes, and other production tasks that Claude and Gemini cannot do.
+
 ## Key Features and Differences
 
 This LTS fork adds development, embedding, automated testing, LLM and distributed inference features to ComfyUI, but maintains compatibility with custom nodes from the ecosystem.
